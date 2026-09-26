@@ -1,4 +1,2 @@
-LIBRARY SeewoCaptureGuard.Payload
-
 EXPORTS
     SeewoCaptureGuardEntry

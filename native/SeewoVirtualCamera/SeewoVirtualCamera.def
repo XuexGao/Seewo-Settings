@@ -7,8 +7,6 @@
 ; __declspec(dllexport) (which would emit a decorated name for __stdcall on
 ; 32-bit builds).
 
-LIBRARY SeewoVirtualCamera
-
 EXPORTS
     DllGetClassObject   PRIVATE
     DllCanUnloadNow     PRIVATE

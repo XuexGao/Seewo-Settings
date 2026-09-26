@@ -6,8 +6,6 @@
 ; self-registration entry points. Everything else is discovered through
 ; DllGetClassObject, so the export surface stays deliberately minimal.
 
-LIBRARY SeewoVirtualCamera.DShow
-
 EXPORTS
     DllGetClassObject   PRIVATE
     DllCanUnloadNow     PRIVATE

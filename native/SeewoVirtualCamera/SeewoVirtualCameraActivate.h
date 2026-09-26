@@ -16,8 +16,7 @@
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mferror.h>
-#include <wrl.h>
-#include <wrl/implements.h>
+#include "SeewoWrl.h"
 
 // {A7E4B2C1-5D3F-4A88-9B6E-1C2D3E4F5A60}
 // The CLSID of the virtual camera media source.  The registration tool passes

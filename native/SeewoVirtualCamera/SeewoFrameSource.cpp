@@ -6,7 +6,7 @@
 
 #include <mfobjects.h>
 #include <mferror.h>
-#include <wrl/client.h>
+#include "SeewoWrl.h"
 
 #include <algorithm>
 #include <cstring>

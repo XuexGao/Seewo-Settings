@@ -166,6 +166,7 @@ ative\<Project>. Deriving it from the project
     <ClInclude Include="SeewoMediaStream.h" />
     <ClInclude Include="SeewoFrameSource.h" />
     <ClInclude Include="SeewoKsGuid.h" />
+    <ClInclude Include="SeewoWrl.h" />
     <ClInclude Include="..\SeewoCommon\SeewoIpc.h" />
     <ClInclude Include="..\SeewoCommon\pch.h" />
   </ItemGroup>

@@ -26,8 +26,7 @@
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mferror.h>
-#include <wrl.h>
-#include <wrl/implements.h>
+#include "SeewoWrl.h"
 
 #include <vector>
 

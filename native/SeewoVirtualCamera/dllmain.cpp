@@ -10,8 +10,8 @@
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mferror.h>
-#include <wrl.h>
-#include <wrl/module.h>
+
+#include "SeewoWrl.h"
 
 #include "SeewoVirtualCameraActivate.h"
 

@@ -465,3 +465,96 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # UI smoke test
+  # ---------------------------------------------------------------------------
+  # A separate job rather than more steps in the build job, for two reasons:
+  # it needs the release archive the build job produces, and a UI failure should
+  # be reported as its own check rather than as "the build failed".
+  #
+  # This is the only check that actually runs the application. Compilation cannot
+  # catch a missing resource key, a page that throws during initialisation, or a
+  # service that fails on first use — all of which produce a broken app that still
+  # builds cleanly.
+  smoke-test:
+    name: UI smoke test (Windows x64)
+    runs-on: windows-latest
+    needs: build
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # The runner starts with no interactive desktop session for a service, but
+      # the Actions runner does run in an interactive session, which is what makes
+      # launching a GUI app and screenshotting it possible at all.
+      - name: Report the session context
+        shell: pwsh
+        run: |
+          Write-Host "UserInteractive : $([Environment]::UserInteractive)"
+          Write-Host "Session ID      : $((Get-Process -Id $PID).SessionId)"
+          Add-Type -AssemblyName System.Windows.Forms
+          $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          Write-Host "Virtual screen  : $($bounds.Width)x$($bounds.Height)"
+
+      - name: Download the release archive
+        uses: actions/download-artifact@v4
+        with:
+          name: SeewoAssistant-release
+          path: artifacts/dist
+
+      - name: Extract the release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Expand-Archive -Path 'artifacts/dist/SeewoAssistant-win-x64.zip' `
+            -DestinationPath 'artifacts/app' -Force
+          Get-ChildItem 'artifacts/app' | Select-Object Name, Length | Format-Table -AutoSize
+
+      # The virtual camera needs a registered COM server, which needs elevation.
+      # The runner is an administrator, and `Install-Native.ps1` reports what it
+      # did, which is useful context even when it cannot fully succeed.
+      - name: Attempt to install the native components
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          & 'artifacts/app/scripts/Install-Native.ps1' -Action Status
+          Write-Host ''
+          & 'artifacts/app/scripts/Install-Native.ps1' -Action Install
+
+      - name: Run the UI smoke test
+        id: smoke
+        shell: pwsh
+        run: |
+          & './scripts/ci/Smoke-Test.ps1' `
+            -AppPath (Resolve-Path 'artifacts/app/SeewoAssistant.exe').Path `
+            -OutputDirectory 'artifacts/screenshots'
+
+      # Screenshots, the collected app log and the findings list are uploaded even
+      # when the smoke test fails, because on failure they are exactly what is
+      # needed to work out why.
+      - name: Upload the screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots
+          path: |
+            artifacts/screenshots/**
+          if-no-files-found: warn
+          retention-days: 30
+
+      # The camera check is informational: whether a virtual camera becomes
+      # enumerable depends on the runner's privacy settings and elevation, so it is
+      # reported rather than enforced.
+      - name: Report the virtual camera state
+        if: always()
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Write-Host '=== 系统中的视频输入设备 ==='
+          & 'artifacts/app/SeewoVirtualCamera.Setup.exe' list
+          Write-Host ''
+          Write-Host '=== 虚拟摄像头 API 支持情况 ==='
+          & 'artifacts/app/SeewoVirtualCamera.Setup.exe' check
