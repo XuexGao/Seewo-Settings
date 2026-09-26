@@ -27,8 +27,11 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cwchar>   // wcslen, used when writing to the console
+#include <cstring>  // memcmp, used by the frame comparison
 #include <string>
 #include <vector>
+
+#include "SeewoVirtualCamera.Setup.Capture.h"
 
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfuuid.lib")
@@ -440,6 +443,9 @@ void PrintUsage() {
     Print(L"  SeewoVirtualCamera.Setup.exe remove  [--name <名称>]");
     Print(L"  SeewoVirtualCamera.Setup.exe list        列出系统中的视频输入设备");
     Print(L"  SeewoVirtualCamera.Setup.exe check       检查本机是否支持虚拟摄像头 API");
+    Print(L"  SeewoVirtualCamera.Setup.exe capture [--frames <数量>] [--out <PNG 路径>]");
+    Print(L"                                           从虚拟摄像头真实读帧，验证它确实在输出画面");
+    Print(L"                                           （默认读 60 帧；指定 --out 会把首帧存成 PNG）");
     Print(L"");
     Print(L"说明：");
     Print(L"  MFCreateVirtualCamera 需要 Windows 11 内部版本 22000 或更高版本。");
@@ -487,6 +493,10 @@ struct Options {
     std::wstring Name = kDefaultFriendlyName;
     bool SessionLifetime = false;
     bool AllUsers = false;
+
+    // Used by "capture".
+    int FrameCount = 60;
+    std::wstring OutputPath;
 };
 
 Options ParseCommandLine() {
@@ -516,6 +526,19 @@ Options ParseCommandLine() {
             options.SessionLifetime = true;
         } else if (arg == L"--all-users") {
             options.AllUsers = true;
+        } else if (arg == L"--frames" && i + 1 < args.size()) {
+            try {
+                options.FrameCount = std::stoi(args[++i]);
+            } catch (...) {
+                // A bad value falls back to the default rather than failing the run;
+                // the count is reported either way.
+                options.FrameCount = 60;
+            }
+            if (options.FrameCount <= 0) {
+                options.FrameCount = 1;
+            }
+        } else if (arg == L"--out" && i + 1 < args.size()) {
+            options.OutputPath = args[++i];
         } else if (arg == L"--help" || arg == L"-h" || arg == L"/?") {
             options.Command = L"help";
         } else if (options.Command.empty()) {
@@ -602,6 +625,28 @@ int wmain() {
 
     if (options.Command == L"remove") {
         return RemoveCamera(options.Name);
+    }
+
+    if (options.Command == L"capture") {
+        std::wstring summary;
+        std::wstring error;
+
+        // An empty name selector means "the first virtual camera found", which is
+        // what a caller wants when it does not care which one.
+        const int result = CaptureFrames(
+            options.Name, options.FrameCount, options.OutputPath, &summary, &error);
+
+        // Print through the same helper as everything else so the encoding rules
+        // are applied consistently.
+        if (!summary.empty()) {
+            Print(L"%ls", summary.c_str());
+        }
+
+        if (result != 0 && !error.empty()) {
+            Print(L"[错误] %ls", error.c_str());
+        }
+
+        return result;
     }
 
     Print(L"[错误] 未知命令：%ls", options.Command.c_str());

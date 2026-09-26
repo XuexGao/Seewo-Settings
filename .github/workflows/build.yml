@@ -616,10 +616,38 @@ jobs:
 
           Write-Host '安装工具输出为合法 UTF-8，且内容符合预期。' -ForegroundColor Green
 
-      - name: Report the virtual camera state
+      - name: Report the virtual camera API support
         if: always()
         shell: pwsh
         continue-on-error: true
         run: |
           Write-Host '=== 虚拟摄像头 API 支持情况 ==='
           & 'artifacts/app/SeewoVirtualCamera.Setup.exe' check
+
+      # The strongest available check of the media source: read real frames through
+      # the standard Media Foundation device path and save one as a PNG. Enumerating
+      # a camera only proves it is registered; reading frames proves the source
+      # actually produces pictures.
+      #
+      # continue-on-error is deliberate. Whether a virtual camera can start at all
+      # depends on the runner having a usable video stack and camera access enabled,
+      # neither of which the build controls. The step still reports what it observed,
+      # and the captured frame is uploaded either way, so a genuine regression is
+      # visible in the artifact rather than hidden behind an environment limitation.
+      - name: Capture frames from the virtual camera
+        if: always()
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $setup = 'artifacts/app/SeewoVirtualCamera.Setup.exe'
+          $png = 'artifacts/screenshots/camera-frame.png'
+
+          Write-Host '=== 从虚拟摄像头读取画面 ==='
+          & $setup capture --frames 60 --out $png
+
+          if (Test-Path $png) {
+            $size = (Get-Item $png).Length
+            Write-Host "已保存画面：$png ($size 字节)" -ForegroundColor Green
+          } else {
+            Write-Host '没有产生画面文件。若摄像头本身未能启动，这是预期结果。' -ForegroundColor Yellow
+          }

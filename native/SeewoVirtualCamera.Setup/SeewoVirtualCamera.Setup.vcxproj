@@ -78,7 +78,7 @@ ative\<Project>. Deriving it from the project
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>mfplat.lib;mf.lib;mfuuid.lib;ole32.lib;shell32.lib;shlwapi.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>mfplat.lib;mf.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;oleaut32.lib;shell32.lib;shlwapi.lib;advapi32.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -102,12 +102,17 @@ ative\<Project>. Deriving it from the project
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>mfplat.lib;mf.lib;mfuuid.lib;ole32.lib;shell32.lib;shlwapi.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>mfplat.lib;mf.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;oleaut32.lib;shell32.lib;shlwapi.lib;advapi32.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="SeewoVirtualCamera.Setup.Capture.cpp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ClInclude Include="SeewoVirtualCamera.Setup.Capture.h" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
