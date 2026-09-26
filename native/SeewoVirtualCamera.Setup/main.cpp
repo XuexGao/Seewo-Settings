@@ -26,8 +26,7 @@
 
 #include <cstdarg>
 #include <cstdio>
-#include <fcntl.h>
-#include <io.h>
+#include <cwchar>   // wcslen, used when writing to the console
 #include <string>
 #include <vector>
 
@@ -57,12 +56,82 @@ using MFCreateVirtualCameraFn = HRESULT(WINAPI*)(
     ULONG categoryCount,
     IMFVirtualCamera** virtualCamera);
 
+// Writes one line of text to stdout in a form the consumer can actually read.
+//
+// This is more involved than a plain fwprintf because the two consumers need
+// different encodings:
+//
+//   * A console window wants UTF-16 and renders it correctly, but only through
+//     WriteConsoleW. Putting the console into _O_U16TEXT mode achieves the same
+//     thing and then breaks the other case completely.
+//   * A redirected stream (a pipe, or PowerShell capturing the output during CI)
+//     is read as bytes. Writing UTF-16 there produces interleaved NUL bytes that
+//     decode as mojibake - which is exactly what happened in the build log.
+//
+// So the handle is tested once and the appropriate path is used from then on.
+bool StdoutIsConsole() {
+    static const bool isConsole = []() {
+        const HANDLE handle = ::GetStdHandle(STD_OUTPUT_HANDLE);
+        if (handle == nullptr || handle == INVALID_HANDLE_VALUE) {
+            return false;
+        }
+        DWORD mode = 0;
+        return ::GetConsoleMode(handle, &mode) != FALSE;
+    }();
+    return isConsole;
+}
+
 void Print(const wchar_t* format, ...) {
+    wchar_t buffer[2048] = {};
+
     va_list args;
     va_start(args, format);
-    ::vfwprintf(stdout, format, args);
+    const int written = ::_vsnwprintf_s(buffer, _TRUNCATE, format, args);
     va_end(args);
-    ::fputws(L"\n", stdout);
+
+    if (written < 0) {
+        return;  // Truncated; nothing useful to print.
+    }
+
+    if (StdoutIsConsole()) {
+        const HANDLE handle = ::GetStdHandle(STD_OUTPUT_HANDLE);
+        DWORD consumed = 0;
+
+        // The buffer may exceed what WriteConsoleW accepts in one call, so loop.
+        const wchar_t* cursor = buffer;
+        size_t remaining = ::wcslen(buffer);
+
+        while (remaining > 0) {
+            const DWORD chunk = static_cast<DWORD>(
+                remaining > 8192 ? 8192 : remaining);
+            if (!::WriteConsoleW(handle, cursor, chunk, &consumed, nullptr) || consumed == 0) {
+                break;
+            }
+            cursor += consumed;
+            remaining -= consumed;
+        }
+
+        ::WriteConsoleW(handle, L"\r\n", 2, &consumed, nullptr);
+        return;
+    }
+
+    // Redirected: emit UTF-8 so the bytes decode correctly in a log or a pipe.
+    // PowerShell 7 reads redirected native output as UTF-8 by default, and CI log
+    // viewers expect UTF-8 as well.
+    const int utf8Length = ::WideCharToMultiByte(
+        CP_UTF8, 0, buffer, -1, nullptr, 0, nullptr, nullptr);
+
+    if (utf8Length <= 1) {  // 1 because the count includes the terminator.
+        return;
+    }
+
+    std::string utf8(static_cast<size_t>(utf8Length - 1), '\0');
+    ::WideCharToMultiByte(
+        CP_UTF8, 0, buffer, -1, utf8.data(), utf8Length, nullptr, nullptr);
+
+    ::fwrite(utf8.data(), 1, utf8.size(), stdout);
+    ::fputs("\n", stdout);
+    ::fflush(stdout);
 }
 
 void PrintError(const wchar_t* operation, DWORD error) {
@@ -461,11 +530,10 @@ Options ParseCommandLine() {
 
 int wmain() {
     // Every message is wide, and most of them are Chinese. Switching stdout to
-    // UTF-16 mode is what makes the wide output render correctly in a console
-    // instead of producing mojibake. The unbuffered mode is set as well so output
-    // appears as it happens rather than at exit, which otherwise makes the tool
-    // look hung during a slow install.
-    ::_setmode(::_fileno(stdout), _O_U16TEXT);
+    // Print() picks the right encoding for a console versus a redirected stream, so
+    // the stream mode is deliberately left alone here. Unbuffered output is kept so
+    // messages appear as they happen; buffering would otherwise make a slow install
+    // look hung.
     ::setvbuf(stdout, nullptr, _IONBF, 0);
 
     const Options options = ParseCommandLine();

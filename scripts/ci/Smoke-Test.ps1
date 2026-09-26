@@ -306,8 +306,11 @@ Write-Host "   输出目录   : $OutputDirectory"
 Write-Host "   会话 ID    : $((Get-Process -Id $PID).SessionId)"
 Write-Host "   交互式会话 : $([Environment]::UserInteractive)"
 
-if ($screenWidth -lt 1200) {
-    Write-Warn "桌面只有 ${screenWidth}x${screenHeight}；应用窗口默认 1180x820，截图可能被裁剪。"
+# The app clamps its window to the work area, so a smaller desktop is not a problem
+# in itself; this is informational, and it also records the desktop size in the
+# findings in case a layout issue turns out to be resolution-dependent.
+if ($screenWidth -lt 1280 -or $screenHeight -lt 900) {
+    Write-Host "   提示       : 桌面较小，应用会把窗口收缩到工作区内。"
 }
 
 Write-Step '启动应用'

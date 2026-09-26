@@ -548,13 +548,44 @@ jobs:
       # The camera check is informational: whether a virtual camera becomes
       # enumerable depends on the runner's privacy settings and elevation, so it is
       # reported rather than enforced.
+      # Runs the tool and asserts its output is readable. The tool writes UTF-8 when
+      # its output is redirected, but an earlier version forced the console into
+      # UTF-16 and produced interleaved NUL bytes in this very log, which decodes as
+      # mojibake. Nobody noticed until the log was read closely, so it is now a check
+      # rather than something to notice by eye.
+      - name: Verify the setup tool output is readable
+        if: always()
+        shell: pwsh
+        run: |
+          $setup = 'artifacts/app/SeewoVirtualCamera.Setup.exe'
+
+          $output = & $setup list 2>&1 | Out-String
+          Write-Host $output
+
+          $problems = @()
+
+          if ($output -match "\x00") {
+            $problems += '输出中出现了 NUL 字节（说明用了 UTF-16 写入重定向流）'
+          }
+          if ($output -notmatch '[\u4e00-\u9fff]') {
+            $problems += '输出中没有找到任何中文字符，编码很可能不对'
+          }
+          if ($output -notmatch '视频输入设备') {
+            $problems += '输出中缺少预期标题「视频输入设备」'
+          }
+
+          if ($problems.Count -gt 0) {
+            Write-Host ''
+            Write-Error "安装工具输出不可读：$($problems -join '；')"
+            exit 1
+          }
+
+          Write-Host '安装工具输出可正常读取。' -ForegroundColor Green
+
       - name: Report the virtual camera state
         if: always()
         shell: pwsh
         continue-on-error: true
         run: |
-          Write-Host '=== 系统中的视频输入设备 ==='
-          & 'artifacts/app/SeewoVirtualCamera.Setup.exe' list
-          Write-Host ''
           Write-Host '=== 虚拟摄像头 API 支持情况 ==='
           & 'artifacts/app/SeewoVirtualCamera.Setup.exe' check
