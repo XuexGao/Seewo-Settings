@@ -69,6 +69,44 @@ jobs:
       # "Verify the native outputs" step below is the real gate, and it fails the job
       # if any component did not produce its binary.
 
+      # MSBuild reports a stray control character in a .vcxproj as a bare
+      # "project file could not be loaded" with no hint about which byte is wrong.
+      # Checking first turns an opaque failure into a precise one.
+      - name: Validate the project files are well-formed XML
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $failed = @()
+
+          $files = Get-ChildItem -Recurse -Include '*.vcxproj', '*.csproj', '*.props', '*.targets' -File |
+            Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' }
+
+          foreach ($file in $files) {
+            $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
+            $bad = $bytes | Where-Object { $_ -lt 0x09 -or ($_ -ge 0x0B -and $_ -le 0x0C) -or ($_ -ge 0x0E -and $_ -le 0x1F) }
+
+            if ($bad.Count -gt 0) {
+              $hex = ($bad | Select-Object -First 3 | ForEach-Object { '0x{0:X2}' -f $_ }) -join ', '
+              Write-Host "  [非法字符] $($file.FullName): $($bad.Count) 个控制字符（$hex）" -ForegroundColor Red
+              $failed += $file.Name
+              continue
+            }
+
+            try {
+              [xml]$null = Get-Content $file.FullName -Raw
+            } catch {
+              Write-Host "  [XML 无效] $($file.FullName): $($_.Exception.Message)" -ForegroundColor Red
+              $failed += $file.Name
+            }
+          }
+
+          if ($failed.Count -gt 0) {
+            Write-Error "以下项目文件无效：$($failed -join '、')"
+            exit 1
+          }
+
+          Write-Host "已检查 $($files.Count) 个项目文件，全部有效。" -ForegroundColor Green
+
       - name: Build the Media Foundation virtual camera (x64)
         id: build_mf_camera
         continue-on-error: true

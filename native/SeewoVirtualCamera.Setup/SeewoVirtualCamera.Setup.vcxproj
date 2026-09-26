@@ -50,7 +50,7 @@ ative\<Project>. Deriving it from the project
          directory rather than SolutionDir is deliberate: MSBuild sets
          SolutionDir to the *project* directory when a .vcxproj is built
          directly, which would silently redirect the output into
-         native\<Project>rtifacts instead of the repository artifacts
+         native\<Project>artifacts instead of the repository artifacts
          folder that CI collects. -->
     <RepoRoot>$(MSBuildProjectDirectory)\..\..\</RepoRoot>
   </PropertyGroup>
