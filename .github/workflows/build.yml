@@ -624,16 +624,72 @@ jobs:
           Write-Host '=== 虚拟摄像头 API 支持情况 ==='
           & 'artifacts/app/SeewoVirtualCamera.Setup.exe' check
 
-      # The strongest available check of the media source: read real frames through
-      # the standard Media Foundation device path and save one as a PNG. Enumerating
-      # a camera only proves it is registered; reading frames proves the source
-      # actually produces pictures.
-      #
-      # continue-on-error is deliberate. Whether a virtual camera can start at all
-      # depends on the runner having a usable video stack and camera access enabled,
-      # neither of which the build controls. The step still reports what it observed,
-      # and the captured frame is uploaded either way, so a genuine regression is
-      # visible in the artifact rather than hidden behind an environment limitation.
+      # What the build controls, asserted strictly: the media source CLSID must be
+      # registered under HKLM with an InProcServer32 entry pointing at the DLL that
+      # was actually shipped. If this is wrong, no virtual camera can ever appear, so
+      # it is a hard failure rather than a note.
+      - name: Verify the media source COM registration
+        if: always()
+        shell: pwsh
+        run: |
+          # Read the CLSID from the header that defines it rather than repeating the
+          # literal here. It appears in the native header, in the C# constant and in
+          # this check; a typo in any copy would silently test the wrong key.
+          $header = 'native/SeewoVirtualCamera/SeewoVirtualCameraActivate.h'
+          $match = Select-String -Path $header -Pattern '\{A7E4B2C1-[0-9A-Fa-f-]+\}' |
+            Select-Object -First 1
+
+          if (-not $match) {
+            Write-Error "无法从 $header 读取 CLSID"
+            exit 1
+          }
+
+          $clsid = $match.Matches[0].Value
+          Write-Host "从 $header 读取到 CLSID：$clsid"
+
+          $key = "HKLM:\SOFTWARE\Classes\CLSID\$clsid\InProcServer32"
+
+          if (-not (Test-Path $key)) {
+            Write-Error "媒体源 CLSID 未注册：$clsid"
+            exit 1
+          }
+
+          $dllPath = (Get-ItemProperty $key).'(default)'
+          $threading = (Get-ItemProperty $key).'ThreadingModel'
+
+          Write-Host "CLSID        : $clsid"
+          Write-Host "DLL 路径     : $dllPath"
+          Write-Host "ThreadingModel: $threading"
+
+          $problems = @()
+
+          if ([string]::IsNullOrWhiteSpace($dllPath)) {
+            $problems += 'InProcServer32 的默认值（DLL 路径）为空'
+          }
+          elseif (-not (Test-Path $dllPath)) {
+            $problems += "注册的 DLL 路径不存在：$dllPath"
+          }
+          elseif ((Split-Path -Leaf $dllPath) -ne 'SeewoVirtualCamera.dll') {
+            $problems += "注册指向的不是媒体源 DLL：$dllPath"
+          }
+
+          if ($threading -ne 'Both') {
+            $problems += "ThreadingModel 是 '$threading'，应为 'Both'"
+          }
+
+          if ($problems.Count -gt 0) {
+            Write-Error "COM 注册不正确：$($problems -join '；')"
+            exit 1
+          }
+
+          Write-Host '媒体源 COM 注册正确。' -ForegroundColor Green
+
+      # Reading actual frames is the strongest check of the media source, but whether
+      # a virtual camera can start at all depends on the runner having a working
+      # video stack and camera access enabled. Neither is under the build's control,
+      # so this step reports what it observed and does not fail the job: the captured
+      # frame is uploaded either way, which is what makes a real regression visible
+      # instead of being masked by an environment limitation.
       - name: Capture frames from the virtual camera
         if: always()
         shell: pwsh
@@ -643,11 +699,35 @@ jobs:
           $png = 'artifacts/screenshots/camera-frame.png'
 
           Write-Host '=== 从虚拟摄像头读取画面 ==='
+
+          # The tool exits non-zero when it cannot read frames. That is handled here
+          # rather than left to fail the step, so an environment limitation reads as
+          # a note and a genuine regression is still visible in the output below.
           & $setup capture --frames 60 --out $png
+          $captureExit = $LASTEXITCODE
+
+          Write-Host "capture 退出码：$captureExit"
 
           if (Test-Path $png) {
             $size = (Get-Item $png).Length
             Write-Host "已保存画面：$png ($size 字节)" -ForegroundColor Green
-          } else {
-            Write-Host '没有产生画面文件。若摄像头本身未能启动，这是预期结果。' -ForegroundColor Yellow
+            "摄像头取帧：成功（$size 字节）" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
+          else {
+            Write-Host '没有产生画面文件。' -ForegroundColor Yellow
+
+            # Say plainly which of the two situations this is, so the log is not
+            # ambiguous the next time it is read.
+            if ($captureExit -eq 7) {
+              Write-Host '原因：摄像头已注册但无法激活。CI 虚拟机通常没有可用的视频栈，这是环境限制，不是代码缺陷。' -ForegroundColor Yellow
+              "摄像头取帧：未激活（环境限制，CI 虚拟机无视频设备）" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            }
+            elseif ($captureExit -eq 8 -or $captureExit -eq 9) {
+              Write-Host '原因：摄像头已激活但没有输出有效画面。这可能是真实缺陷，请检查上方输出。' -ForegroundColor Red
+              "摄像头取帧：失败（已激活但无有效画面）" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            }
+            else {
+              Write-Host "原因：capture 以退出码 $captureExit 结束。" -ForegroundColor Yellow
+              "摄像头取帧：退出码 $captureExit" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            }
           }
