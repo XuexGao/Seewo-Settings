@@ -201,11 +201,30 @@ function Install-Native {
 
         if (Test-Path $setupTool) {
             & $setupTool install
-            if ($LASTEXITCODE -eq 0) {
+            $installExit = $LASTEXITCODE
+
+            if ($installExit -eq 0) {
                 Write-Ok 'Media Foundation 虚拟摄像头已安装'
             }
             else {
-                Write-Fail "安装工具返回退出码 $LASTEXITCODE"
+                # Translate the tool's exit codes rather than only echoing the
+                # number, so the reader knows whether anything is actually broken.
+                # See native/SeewoVirtualCamera.Setup/main.cpp for the definitions.
+                $explanation = switch ($installExit) {
+                    1 { '注册 COM 组件失败，通常是没有以管理员身份运行。' }
+                    2 { '找不到 SeewoVirtualCamera.dll，发行包可能不完整。' }
+                    3 { '本机不支持 MFCreateVirtualCamera（需要 Windows 11 内部版本 22000 或更高）。' }
+                    5 { 'MFCreateVirtualCamera 调用失败，最常见的原因是系统相机访问被关闭。' }
+                    6 { '摄像头未能注册到系统。COM 组件已注册成功，但 Start 失败；多数情况下是系统相机访问被关闭，或该环境没有视频设备（虚拟机、远程会话、Server Core 常见）。' }
+                    default { '未知错误。' }
+                }
+
+                Write-Fail "Media Foundation 虚拟摄像头安装未完成（退出码 $installExit）：$explanation"
+
+                if ($installExit -in 5, 6) {
+                    Write-Info 'COM 组件注册本身是成功的。修好相机访问后，可以只运行以下命令重试创建：'
+                    Write-Info "  & `"$setupTool`" create"
+                }
             }
         }
         else {

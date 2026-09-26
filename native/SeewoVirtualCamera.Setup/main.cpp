@@ -234,11 +234,22 @@ int CreateCamera(const std::wstring& friendlyName, bool systemLifetime, bool all
     }
 
     // Start makes the camera enumerable. Without it the object exists but no
-    // application can see the device.
+    // application can see the device, so a failure here means the camera was not
+    // actually created even though MFCreateVirtualCamera returned success.
     const HRESULT startResult = camera->Start(nullptr);
 
     if (FAILED(startResult)) {
         PrintHResult(L"IMFVirtualCamera::Start", startResult);
+
+        // Spell out the realistic causes. A bare exit code is not actionable, and
+        // this is the step most likely to fail on a machine that is otherwise fine.
+        Print(L"        摄像头未能注册到系统。常见原因：");
+        Print(L"        1. 系统相机访问被关闭：设置 → 隐私和安全性 → 相机 → 允许应用访问你的相机。");
+        Print(L"        2. FrameServer 服务未运行：以管理员身份运行 services.msc，启动「Windows Camera Frame Server」。");
+        Print(L"        3. 该环境没有可用的视频设备（服务器核心安装、虚拟机或远程会话常见）。");
+        Print(L"        4. 媒体源 DLL 依赖缺失：用 dumpbin /DEPENDENTS SeewoVirtualCamera.dll 检查。");
+        Print(L"        COM 组件本身已注册成功，注册表状态不受影响；可在环境具备条件后单独运行 create。");
+
         camera->Release();
         return 6;
     }
@@ -487,9 +498,20 @@ int wmain() {
             return 1;
         }
 
-        // Registering the server alone does not create a camera; do both so the
-        // command does what a user expects from "install".
-        const int createResult = CreateCamera(options.Name, false, false);
+        // Registering the server alone does not create a camera, so install does
+        // both - that is what a user expects from "install".
+        //
+        // The camera is created with System lifetime, not Session lifetime. A
+        // session-lifetime camera is torn down as soon as the object is released or
+        // this process exits, which would make "install" appear to succeed and then
+        // leave no camera behind at all. System lifetime is what persists across
+        // reboots and what a "create" without --session also produces, so install and
+        // create agree.
+        //
+        // Failure here is reported but does not undo the COM registration: the
+        // server is registered and usable, and the camera can be created later with
+        // "create". Returning non-zero still tells the caller something went wrong.
+        const int createResult = CreateCamera(options.Name, /*systemLifetime=*/true, options.AllUsers);
         return createResult == 0 ? 0 : createResult;
     }
 
