@@ -434,17 +434,23 @@ HRESULT SeewoFrameSource::CopyOutputToSampleLocked(IMFSample* sample) const {
       if (FAILED(hr)) {
         return hr;
       }
-      // A negative pitch means bottom-up memory; the negotiated RGB32 type for
-      // this source always declares a positive default stride, so a negative
-      // pitch here would corrupt the image.  Reject rather than mis-render.
-      if (pitch < 0) {
-        buffer2d->Unlock2D();
-        return MF_E_INVALIDMEDIATYPE;
-      }
-      for (UINT y = 0; y < height; ++y) {
-        ::memcpy(scanline0 + static_cast<size_t>(y) * pitch,
-                 outputBgra_.data() + static_cast<size_t>(y) * width * 4u,
-                 static_cast<size_t>(width) * 4u);
+      if (pitch >= 0) {
+        for (UINT y = 0; y < height; ++y) {
+          ::memcpy(scanline0 + static_cast<size_t>(y) * pitch,
+                   outputBgra_.data() + static_cast<size_t>(y) * width * 4u,
+                   static_cast<size_t>(width) * 4u);
+        }
+      } else {
+        // A negative pitch means the buffer is bottom-up: scanline 0 is the
+        // bottom row of the image.  Flip while copying rather than producing an
+        // upside-down frame.
+        const size_t rowBytes = static_cast<size_t>(width) * 4u;
+        const size_t stride = static_cast<size_t>(-static_cast<LONGLONG>(pitch));
+        for (UINT y = 0; y < height; ++y) {
+          ::memcpy(scanline0 + static_cast<size_t>(height - 1 - y) * stride,
+                   outputBgra_.data() + static_cast<size_t>(y) * rowBytes,
+                   rowBytes);
+        }
       }
       buffer2d->Unlock2D();
     } else {
@@ -481,6 +487,10 @@ HRESULT SeewoFrameSource::CopyOutputToSampleLocked(IMFSample* sample) const {
     if (FAILED(hr)) {
       return hr;
     }
+    // NV12 is planar and only meaningful top-down; a bottom-up buffer cannot be
+    // represented.  This should never happen for a type negotiated with a
+    // positive default stride, so fail loudly rather than write a scrambled
+    // image.
     if (pitch < static_cast<LONG>(width)) {
       buffer2d->Unlock2D();
       return MF_E_INVALIDMEDIATYPE;

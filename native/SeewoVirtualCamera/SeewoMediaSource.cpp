@@ -5,6 +5,12 @@
 
 #include <mfobjects.h>
 #include <mferror.h>
+// PINNAME_VIDEO_CAPTURE (used for MF_DEVICESTREAM_STREAM_CATEGORY) is declared in
+// ksmedia.h, which requires ks.h and then ksproxy.h to be included first.  The
+// PINNAME_* GUIDs themselves come from ksguid.lib, which the project links.
+#include <ks.h>
+#include <ksproxy.h>
+#include <ksmedia.h>
 
 #include <new>
 
@@ -144,9 +150,6 @@ HRESULT SeewoMediaSource::Initialize(IMFAttributes* activateAttributes) {
                                             static_cast<UINT64>(kPresentationDuration));
   }
   if (SUCCEEDED(hr)) {
-    hr = presentationDescriptor_->SetUINT32(MF_PD_IS_RENDERER_ACCELERATED, 0);
-  }
-  if (SUCCEEDED(hr)) {
     state_ = SourceState::kStopped;
     initialized_ = true;
   }
@@ -162,6 +165,39 @@ HRESULT SeewoMediaSource::CheckShutdownLocked() const {
   if (eventQueue_ == nullptr) {
     return E_UNEXPECTED;
   }
+  return S_OK;
+}
+
+// ---------------------------------------------------------------------------
+// IUnknown
+// ---------------------------------------------------------------------------
+
+IFACEMETHODIMP SeewoMediaSource::QueryInterface(REFIID riid, void** ppvObject) {
+  if (ppvObject == nullptr) {
+    return E_POINTER;
+  }
+  *ppvObject = nullptr;
+
+  // Walk the interface chains explicitly.  IMFMediaSourceEx -> IMFMediaSource ->
+  // IMFMediaEventGenerator, plus IMFGetService and IMFAttributes.  All of them
+  // are implemented by this single object, so they share one identity and one
+  // reference count.
+  if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IMFMediaSourceEx)) {
+    *ppvObject = static_cast<IMFMediaSourceEx*>(this);
+  } else if (IsEqualIID(riid, IID_IMFMediaSource)) {
+    *ppvObject = static_cast<IMFMediaSource*>(this);
+  } else if (IsEqualIID(riid, IID_IMFMediaEventGenerator)) {
+    *ppvObject = static_cast<IMFMediaEventGenerator*>(this);
+  } else if (IsEqualIID(riid, IID_IMFAttributes)) {
+    *ppvObject = static_cast<IMFAttributes*>(this);
+  } else if (IsEqualIID(riid, IID_IMFGetService)) {
+    *ppvObject = static_cast<IMFGetService*>(this);
+  } else {
+    // Anything else (IPersist, IMFSampleAllocatorControl, ...) is not offered.
+    return E_NOINTERFACE;
+  }
+
+  AddRef();
   return S_OK;
 }
 
@@ -361,7 +397,7 @@ IFACEMETHODIMP SeewoMediaSource::Start(
       }
 
       Microsoft::WRL::ComPtr<SeewoMediaStream> stream =
-          (index < streams_.size()) ? streams_[index] : nullptr;
+          FindStreamByIdLocked(streamId);
       if (stream == nullptr) {
         hr = E_UNEXPECTED;
         break;
@@ -389,7 +425,7 @@ IFACEMETHODIMP SeewoMediaSource::Start(
         hr = stream.As(&unknown);
         if (SUCCEEDED(hr)) {
           hr = eventQueue_->QueueEventParamUnk(
-              wasSelected ? MEUpdatedStream : MENewStream, GUID_NULL, S_OK,
+              firstStartDone_ ? MEUpdatedStream : MENewStream, GUID_NULL, S_OK,
               unknown.Get());
         }
         if (FAILED(hr)) {
@@ -421,14 +457,14 @@ IFACEMETHODIMP SeewoMediaSource::Start(
   if (SUCCEEDED(hr)) {
     PROPVARIANT startTime;
     ::PropVariantInit(&startTime);
-    hr = ::InitPropVariantFromInt64(::MFGetSystemTime(), &startTime);
-    if (SUCCEEDED(hr)) {
-      hr = eventQueue_->QueueEventParamVar(MESourceStarted, GUID_NULL, S_OK,
-                                           &startTime);
-      ::PropVariantClear(&startTime);
-    }
+    startTime.vt = VT_I8;
+    startTime.hVal.QuadPart = ::MFGetSystemTime();
+    hr = eventQueue_->QueueEventParamVar(MESourceStarted, GUID_NULL, S_OK,
+                                         &startTime);
+    ::PropVariantClear(&startTime);
     if (SUCCEEDED(hr)) {
       state_ = SourceState::kStarted;
+      firstStartDone_ = true;
     }
   }
 

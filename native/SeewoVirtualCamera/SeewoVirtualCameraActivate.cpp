@@ -71,6 +71,31 @@ HRESULT SeewoVirtualCameraActivate::Initialize() {
   return S_OK;
 }
 
+// ---------------------------------------------------------------------------
+// IUnknown
+// ---------------------------------------------------------------------------
+
+IFACEMETHODIMP SeewoVirtualCameraActivate::QueryInterface(REFIID riid,
+                                                          void** ppvObject) {
+  if (ppvObject == nullptr) {
+    return E_POINTER;
+  }
+  *ppvObject = nullptr;
+
+  // IMFActivate derives from IMFAttributes; both are implemented by this object,
+  // so they share one identity and one reference count.
+  if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IMFActivate)) {
+    *ppvObject = static_cast<IMFActivate*>(this);
+  } else if (IsEqualIID(riid, IID_IMFAttributes)) {
+    *ppvObject = static_cast<IMFAttributes*>(this);
+  } else {
+    return E_NOINTERFACE;
+  }
+
+  AddRef();
+  return S_OK;
+}
+
 IFACEMETHODIMP SeewoVirtualCameraActivate::ActivateObject(REFIID riid,
                                                           void** ppvObject) {
   if (ppvObject == nullptr) {

@@ -346,9 +346,17 @@ void FrameSource::RenderPattern(uint64_t frameIndex) {
         return;
     }
 
-    // The sweep bar moves left to right and wraps. It is drawn as a soft-edged
-    // column so it survives chroma subsampling in the YUY2 path without turning
-    // into a two-pixel staircase.
+    // Start from the pristine bars/ramp, then draw the sweep bar on top. The
+    // copy is the price of not accumulating the inversion across frames; at
+    // 1080p it is ~8 MB per frame, which memcpy handles at memory bandwidth.
+    if (frame_.size() != pattern_.size()) {
+        frame_.resize(pattern_.size());
+    }
+    std::memcpy(frame_.data(), pattern_.data(), pattern_.size());
+
+    // The sweep bar moves left to right and wraps. It is drawn as a column of
+    // inverted pixels so it is visible against both the colour bars and the
+    // greyscale ramp, and unmistakably "live".
     const uint32_t sweepWidth = std::max<uint32_t>(width_ / 32u, 4u);
     const uint32_t span = width_ + sweepWidth;
     const uint32_t sweepX = static_cast<uint32_t>(frameIndex % span);
@@ -357,11 +365,9 @@ void FrameSource::RenderPattern(uint64_t frameIndex) {
     const uint32_t right = std::min<uint32_t>(sweepX, width_);
 
     for (uint32_t y = 0; y < height_; ++y) {
-        uint8_t* row = pattern_.data() + static_cast<size_t>(y) * width_ * 4u;
+        uint8_t* row = frame_.data() + static_cast<size_t>(y) * width_ * 4u;
         for (uint32_t x = left; x < right; ++x) {
             uint8_t* pixel = row + static_cast<size_t>(x) * 4u;
-            // Invert whatever is underneath: visible against both the colour bars
-            // and the greyscale ramp, and unmistakably "live".
             pixel[0] = static_cast<uint8_t>(255u - pixel[0]);
             pixel[1] = static_cast<uint8_t>(255u - pixel[1]);
             pixel[2] = static_cast<uint8_t>(255u - pixel[2]);
@@ -376,14 +382,17 @@ void FrameSource::ConvertBgraToRgb32(const FrameRequest& request,
                                      uint32_t height) {
     // RGB32 in DirectShow is BGRA in memory, so this is a straight row copy with
     // only the destination stride handled. A negative destination stride means a
-    // bottom-up DIB: start at the last row and walk backwards.
+    // bottom-up DIB: image row 0 belongs at buffer row request.height - 1, which
+    // is why the destination height -- not the copied height -- drives the
+    // mapping. Using the copied height would place a partial image at the wrong
+    // vertical offset.
     const uint32_t rowBytes = width * 4u;
     const bool bottomUp = request.destStride < 0;
     const LONG absStride =
         bottomUp ? -request.destStride : request.destStride;
 
     for (uint32_t y = 0; y < height; ++y) {
-        const uint32_t destRow = bottomUp ? (height - 1u - y) : y;
+        const uint32_t destRow = bottomUp ? (request.height - 1u - y) : y;
         uint8_t* dst = request.dest + static_cast<size_t>(destRow) * absStride;
         const uint8_t* src = source + static_cast<size_t>(y) * sourceStride;
         std::memcpy(dst, src, rowBytes);
@@ -399,7 +408,7 @@ void FrameSource::ConvertBgraToRgb24(const FrameRequest& request,
         bottomUp ? -request.destStride : request.destStride;
 
     for (uint32_t y = 0; y < height; ++y) {
-        const uint32_t destRow = bottomUp ? (height - 1u - y) : y;
+        const uint32_t destRow = bottomUp ? (request.height - 1u - y) : y;
         uint8_t* dst = request.dest + static_cast<size_t>(destRow) * absStride;
         const uint8_t* src = source + static_cast<size_t>(y) * sourceStride;
 
@@ -428,7 +437,7 @@ void FrameSource::ConvertBgraToYuy2(const FrameRequest& request,
     const uint32_t pairCount = (width + 1u) / 2u;
 
     for (uint32_t y = 0; y < height; ++y) {
-        const uint32_t destRow = bottomUp ? (height - 1u - y) : y;
+        const uint32_t destRow = bottomUp ? (request.height - 1u - y) : y;
         uint8_t* dst = request.dest + static_cast<size_t>(destRow) * absStride;
         const uint8_t* src = source + static_cast<size_t>(y) * sourceStride;
 
@@ -462,15 +471,92 @@ void FrameSource::ConvertBgraToYuy2(const FrameRequest& request,
     }
 }
 
+void FrameSource::FillBackground(const FrameRequest& request) {
+    // Paint the entire destination with a neutral dark grey (luma 16, chroma
+    // 128 -- the classic "no signal" level) before a partial write. Without this
+    // a producer publishing a smaller geometry than the one negotiated would
+    // leave the previous frame's pixels visible in the uncovered region.
+    if (request.dest == nullptr || request.width == 0 || request.height == 0) {
+        return;
+    }
+
+    const bool bottomUp = request.destStride < 0;
+    const LONG absStride = bottomUp ? -request.destStride : request.destStride;
+    if (absStride <= 0) {
+        return;
+    }
+
+    // Bound every write by the caller's reported buffer size so a
+    // smaller-than-advertised allocator cannot be overrun.
+    const uint64_t maxBytes = request.destBytes;
+
+    for (uint32_t y = 0; y < request.height; ++y) {
+        const uint32_t destRow = bottomUp ? (request.height - 1u - y) : y;
+        const uint64_t rowOffset = static_cast<uint64_t>(destRow) * absStride;
+        if (rowOffset >= maxBytes) {
+            break;
+        }
+        uint8_t* row = request.dest + rowOffset;
+        const uint64_t rowBudget = maxBytes - rowOffset;
+
+        switch (request.subtype) {
+            case PixelSubtype::Rgb32: {
+                const uint64_t needed = static_cast<uint64_t>(request.width) * 4u;
+                if (needed > rowBudget) {
+                    return;
+                }
+                for (uint32_t x = 0; x < request.width; ++x) {
+                    row[x * 4u + 0] = 16;
+                    row[x * 4u + 1] = 16;
+                    row[x * 4u + 2] = 16;
+                    row[x * 4u + 3] = 0xFF;
+                }
+                break;
+            }
+            case PixelSubtype::Rgb24: {
+                const uint64_t needed = static_cast<uint64_t>(request.width) * 3u;
+                if (needed > rowBudget) {
+                    return;
+                }
+                std::memset(row, 16, static_cast<size_t>(needed));
+                break;
+            }
+            case PixelSubtype::Yuy2: {
+                const uint32_t pairs = (request.width + 1u) / 2u;
+                const uint64_t needed = static_cast<uint64_t>(pairs) * 4u;
+                if (needed > rowBudget) {
+                    return;
+                }
+                for (uint32_t pair = 0; pair < pairs; ++pair) {
+                    row[pair * 4u + 0] = 16;   // Y0
+                    row[pair * 4u + 1] = 128;  // U
+                    row[pair * 4u + 2] = 16;   // Y1
+                    row[pair * 4u + 3] = 128;  // V
+                }
+                break;
+            }
+        }
+    }
+}
+
 void FrameSource::Convert(const FrameRequest& request, const uint8_t* source,
                           uint32_t sourceStride, uint32_t width,
                           uint32_t height) {
     // A producer may publish a different size than the one we negotiated (for
     // example the assistant switched capture resolution). Scaling would cost a
-    // filter and a lot of CPU; instead we letterbox by clamping reads and
-    // centring, which keeps the frame recognisable without lying about geometry.
+    // filter and a lot of CPU; instead we take the overlapping top-left region
+    // and fill the remainder with the neutral background above. That keeps the
+    // frame recognisable without lying about the negotiated geometry.
     const uint32_t copyWidth = std::min(width, request.width);
     const uint32_t copyHeight = std::min(height, request.height);
+
+    if (copyWidth < request.width || copyHeight < request.height) {
+        FillBackground(request);
+    }
+
+    if (copyWidth == 0 || copyHeight == 0) {
+        return;
+    }
 
     switch (request.subtype) {
         case PixelSubtype::Rgb32:
@@ -522,7 +608,7 @@ bool FrameSource::Produce(FrameRequest& request, uint64_t frameIndex) {
 
     EnsurePattern(request.width, request.height);
     RenderPattern(frameIndex);
-    Convert(request, pattern_.data(), request.width * 4u, request.width,
+    Convert(request, frame_.data(), request.width * 4u, request.width,
             request.height);
     return false;
 }

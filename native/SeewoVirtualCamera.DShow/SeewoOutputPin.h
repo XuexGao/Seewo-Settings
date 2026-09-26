@@ -206,8 +206,9 @@ public:
 
     // --- Filter-facing streaming control -------------------------------------
     // Called by SeewoDShowFilter. All three are safe to call in any order and
-    // from any thread.
-    HRESULT StartStreaming();
+    // from any thread. `startPaused` lets the graph's Pause() bring the session
+    // up without racing a frame out before the pause flag is set.
+    HRESULT StartStreaming(bool startPaused);
     HRESULT StopStreaming();
     HRESULT PauseStreaming();
     void SetSyncSource(IReferenceClock* clock);
@@ -216,10 +217,6 @@ public:
     bool IsStreaming() const;
 
 private:
-    // Builds the media type the pin will actually stream with, preferring the
-    // caller-requested type and falling back to the first advertised format.
-    bool ResolveStreamFormat(AM_MEDIA_TYPE* out) const;
-
     // Sizes and commits `allocator`, then tells downstream about it. Called with
     // no lock held: every one of these is a call into a peer COM object.
     HRESULT PrepareAllocator(IMemAllocator* allocator);
@@ -255,8 +252,9 @@ private:
     AM_MEDIA_TYPE requestedType_{};
     bool hasRequestedType_ = false;
 
-    // The table entry the pin will stream with. Defaults to the first advertised
-    // format so GetAllocatorRequirements can answer before any negotiation.
+    // The table entry the pin will stream with. Initialised to the first
+    // advertised format (1080p30 RGB32) in the constructor so
+    // GetAllocatorRequirements and GetFormat can answer before any negotiation.
     VideoFormat format_{};
     bool hasFormat_ = false;
 

@@ -36,15 +36,26 @@
 
 namespace seewo {
 
-class SeewoMediaSource
-    : public Microsoft::WRL::RuntimeClass<
-          Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
-          IMFMediaSourceEx,
-          IMFGetService,
-          IMFAttributes> {
+// The WRL base.  Only the most derived interface of each chain is listed,
+// because listing an interface and its base would create an ambiguous
+// static_cast.  Base interfaces (IMFMediaSource, IMFMediaEventGenerator) are
+// resolved by the explicit QueryInterface below.
+using SeewoMediaSourceRuntimeClass = Microsoft::WRL::RuntimeClass<
+    Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
+    IMFMediaSourceEx,
+    IMFGetService,
+    IMFAttributes>;
+
+class SeewoMediaSource : public SeewoMediaSourceRuntimeClass {
  public:
   SeewoMediaSource() noexcept;
   ~SeewoMediaSource() override;
+
+  // IUnknown.  Implemented explicitly so that every interface in the
+  // IMFMediaSourceEx chain, plus IMFGetService and IMFAttributes, is reachable
+  // through QueryInterface with a single COM identity.  Anything else falls
+  // through to WRL's implementation.
+  IFACEMETHODIMP QueryInterface(REFIID riid, void** ppvObject) override;
 
   // Builds the stream, the presentation descriptor and the event queue.
   // `activateAttributes` may be null; it is copied into the source attribute
@@ -142,6 +153,10 @@ class SeewoMediaSource
   SourceState state_ = SourceState::kInvalid;
   bool initialized_ = false;
   bool shutdown_ = false;
+  // Set by the first successful Start().  Used only to decide between
+  // MENewStream and MEUpdatedStream for a stream that is already selected, which
+  // is what a re-Start() on a live source means.
+  bool firstStartDone_ = false;
 
   Microsoft::WRL::ComPtr<IMFMediaEventQueue> eventQueue_;
   Microsoft::WRL::ComPtr<IMFPresentationDescriptor> presentationDescriptor_;

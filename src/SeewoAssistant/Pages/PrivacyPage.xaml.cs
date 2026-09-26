@@ -68,11 +68,11 @@ public sealed partial class PrivacyPage : ModulePageBase
         var monitor = Services.PrivacyMonitor;
         var running = monitor.IsRunning;
 
-        MonitorStateText.Text = running
-            ? $"监控运行中，正在监视{(Services.Settings.MonitorCamera ? "摄像头" : string.Empty)}" +
-              $"{(Services.Settings.MonitorCamera && Services.Settings.MonitorMicrophone ? "和" : string.Empty)}" +
-              $"{(Services.Settings.MonitorMicrophone ? "麦克风" : string.Empty)}的使用情况。"
-            : "监控已停止，不会产生任何提醒。";
+        MonitorStateText.Text = !running
+            ? "监控已停止，不会产生任何提醒。"
+            : DescribeMonitoredDevices() is { Length: > 0 } devices
+                ? $"监控运行中，正在监视{devices}的使用情况。"
+                : "监控正在运行，但摄像头和麦克风都被关闭了，因此不会有任何提醒。";
 
         MonitorBadgeText.Text = running ? "运行中" : "已停止";
         SetBadge(MonitorBadge, MonitorBadgeText, MonitorBadgeText.Text, running);
@@ -81,6 +81,20 @@ public sealed partial class PrivacyPage : ModulePageBase
         StopButton.IsEnabled = running;
 
         UpdateStoreState(running);
+    }
+
+    private string DescribeMonitoredDevices()
+    {
+        var camera = Services.Settings.MonitorCamera;
+        var microphone = Services.Settings.MonitorMicrophone;
+
+        return (camera, microphone) switch
+        {
+            (true, true) => "摄像头和麦克风",
+            (true, false) => "摄像头",
+            (false, true) => "麦克风",
+            _ => string.Empty,
+        };
     }
 
     private void UpdateStoreState(bool running)
@@ -95,7 +109,7 @@ public sealed partial class PrivacyPage : ModulePageBase
         }
         else if (ready)
         {
-            StoreStateText.Text = "已找到摄像头和麦克风的授权记录，可以实时收到变化通知。";
+            StoreStateText.Text = $"已找到{DescribeMonitoredDevices()}的授权记录，可以实时收到变化通知。";
             StoreBadgeText.Text = "已就绪";
             SetBadge(StoreBadge, StoreBadgeText, StoreBadgeText.Text, active: true);
         }
@@ -168,6 +182,7 @@ public sealed partial class PrivacyPage : ModulePageBase
 
         Services.Settings.MonitorCamera = MonitorCameraToggle.IsOn;
         PersistSetting(MonitorCameraToggle.IsOn ? "已开启摄像头监控。" : "已关闭摄像头监控。");
+        RearmMonitorForDeviceChange();
     }
 
     private void OnMonitorMicrophoneToggled(object sender, RoutedEventArgs e)
@@ -179,6 +194,37 @@ public sealed partial class PrivacyPage : ModulePageBase
 
         Services.Settings.MonitorMicrophone = MonitorMicrophoneToggle.IsOn;
         PersistSetting(MonitorMicrophoneToggle.IsOn ? "已开启麦克风监控。" : "已关闭麦克风监控。");
+        RearmMonitorForDeviceChange();
+    }
+
+    /// <summary>
+    /// Restarts the monitor after a device is switched on or off.
+    /// </summary>
+    /// <remarks>
+    /// The service arms its registry watchers once at <c>Start</c> and does not
+    /// re-evaluate which devices are enabled afterwards, so without this a newly
+    /// enabled device would only be picked up on the next launch.
+    /// </remarks>
+    private void RearmMonitorForDeviceChange()
+    {
+        try
+        {
+            if (!Services.PrivacyMonitor.IsRunning)
+            {
+                return;
+            }
+
+            Services.PrivacyMonitor.Stop();
+            Services.PrivacyMonitor.Start();
+
+            UpdateState();
+            Report("监控范围已更新，注册表监视已按新设置重新建立。");
+        }
+        catch (Exception ex)
+        {
+            Services.Logger.Error("Re-arming the privacy monitor after a device change failed.", ex);
+            Report($"重新建立监控失败：{ex.Message}", StatusSeverity.Error);
+        }
     }
 
     private void OnResolveProcessIdsToggled(object sender, RoutedEventArgs e)
@@ -275,6 +321,8 @@ public sealed partial class PrivacyPage : ModulePageBase
 
     private void RefreshExclusionList()
     {
+        // The settings list is mutated in place, so the ItemsSource is reassigned to
+        // force the ListView to re-read it rather than relying on change notification.
         ExclusionList.ItemsSource = null;
         ExclusionList.ItemsSource = Services.Settings.PrivacyExcludedApplications;
 

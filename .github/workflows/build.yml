@@ -64,55 +64,58 @@ jobs:
 
       # ------------------------------------------------------------------ native
       # Each native project is built separately rather than through the solution so a
-      # failure names the exact component.
+      # failure names the exact component. continue-on-error keeps a failing native
+      # project from hiding the managed build's diagnostics in the same run; the
+      # "Verify the native outputs" step below is the real gate, and it fails the job
+      # if any component did not produce its binary.
 
       - name: Build the Media Foundation virtual camera (x64)
+        id: build_mf_camera
+        continue-on-error: true
         run: >
           msbuild native/SeewoVirtualCamera/SeewoVirtualCamera.vcxproj
           /p:Configuration=Release /p:Platform=x64
           /m /v:minimal /nologo
 
       - name: Build the DirectShow virtual camera (x64)
+        id: build_dshow_x64
+        continue-on-error: true
         run: >
           msbuild native/SeewoVirtualCamera.DShow/SeewoVirtualCamera.DShow.vcxproj
           /p:Configuration=Release /p:Platform=x64
           /m /v:minimal /nologo
 
       - name: Build the DirectShow virtual camera (Win32)
+        id: build_dshow_x86
+        continue-on-error: true
         run: >
           msbuild native/SeewoVirtualCamera.DShow/SeewoVirtualCamera.DShow.vcxproj
           /p:Configuration=Release /p:Platform=Win32
           /m /v:minimal /nologo
 
       - name: Build the virtual camera setup tool (x64)
+        id: build_setup_tool
+        continue-on-error: true
         run: >
           msbuild native/SeewoVirtualCamera.Setup/SeewoVirtualCamera.Setup.vcxproj
           /p:Configuration=Release /p:Platform=x64
           /m /v:minimal /nologo
 
       - name: Build the capture guard payload (x64)
+        id: build_payload_x64
+        continue-on-error: true
         run: >
           msbuild native/SeewoCaptureGuard.Payload/SeewoCaptureGuard.Payload.vcxproj
           /p:Configuration=Release /p:Platform=x64
           /m /v:minimal /nologo
 
       - name: Build the capture guard payload (Win32)
+        id: build_payload_x86
+        continue-on-error: true
         run: >
           msbuild native/SeewoCaptureGuard.Payload/SeewoCaptureGuard.Payload.vcxproj
           /p:Configuration=Release /p:Platform=Win32
           /m /v:minimal /nologo
-
-      - name: List the native build output
-        shell: pwsh
-        run: |
-          if (Test-Path artifacts/native) {
-            Get-ChildItem artifacts/native -Recurse -File |
-              Select-Object FullName, Length |
-              Format-Table -AutoSize
-          } else {
-            Write-Error "artifacts/native was not produced."
-            exit 1
-          }
 
       # ------------------------------------------------------------------ managed
       # The managed projects are built individually rather than through the .sln,
@@ -120,16 +123,80 @@ jobs:
       # not drive vcxproj reliably.
 
       - name: Restore managed packages
+        id: restore_managed
+        continue-on-error: true
         run: dotnet restore src/SeewoAssistant/SeewoAssistant.csproj
 
       - name: Build the core library
+        id: build_core
+        continue-on-error: true
         run: dotnet build src/SeewoAssistant.Core/SeewoAssistant.Core.csproj -c Release -m:1
 
       - name: Build the test project
+        id: build_tests
+        continue-on-error: true
         run: dotnet build src/SeewoAssistant.Tests/SeewoAssistant.Tests.csproj -c Release -m:1
 
       - name: Build the application
-        run: dotnet build src/SeewoAssistant/SeewoAssistant.csproj -c Release -m:1
+        id: build_app
+        continue-on-error: true
+        run: dotnet build src/SeewoAssistant/SeewoAssistant.csproj -c Release -m:1 -p:Platform=x64
+
+      # ------------------------------------------------------------------ gate
+      # One place that decides whether the job passes, so every component's
+      # diagnostics are visible in the same run before anything is published.
+
+      - name: Verify the native outputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $expected = @(
+            @{ Name = 'Media Foundation 虚拟摄像头'; Path = 'artifacts/native/x64/Release/SeewoVirtualCamera.dll' },
+            @{ Name = 'DirectShow 虚拟摄像头 (x64)';  Path = 'artifacts/native/x64/Release/SeewoVirtualCamera.DShow.dll' },
+            @{ Name = 'DirectShow 虚拟摄像头 (x86)';  Path = 'artifacts/native/Win32/Release/SeewoVirtualCamera.DShow.dll' },
+            @{ Name = '虚拟摄像头安装工具';          Path = 'artifacts/native/x64/Release/SeewoVirtualCamera.Setup.exe' },
+            @{ Name = '防截屏载荷 (x64)';             Path = 'artifacts/native/x64/Release/SeewoCaptureGuard.Payload.dll' },
+            @{ Name = '防截屏载荷 (x86)';             Path = 'artifacts/native/Win32/Release/SeewoCaptureGuard.Payload.dll' }
+          )
+
+          $missing = @()
+
+          foreach ($item in $expected) {
+            if (Test-Path $item.Path) {
+              $size = (Get-Item $item.Path).Length
+              Write-Host "  [OK]   $($item.Name) -> $($item.Path) ($size bytes)" -ForegroundColor Green
+            } else {
+              Write-Host "  [缺失] $($item.Name) -> $($item.Path)" -ForegroundColor Red
+              $missing += $item.Name
+            }
+          }
+
+          if ($missing.Count -gt 0) {
+            Write-Host ''
+            Write-Error "以下原生组件没有产出二进制文件：$($missing -join '、')"
+            exit 1
+          }
+
+          Write-Host ''
+          Write-Host '全部原生组件构建成功。' -ForegroundColor Green
+
+      - name: Verify the managed build
+        shell: pwsh
+        run: |
+          $failed = @()
+
+          if ('${{ steps.restore_managed.outcome }}' -ne 'success') { $failed += '还原 NuGet 包' }
+          if ('${{ steps.build_core.outcome }}'      -ne 'success') { $failed += 'SeewoAssistant.Core' }
+          if ('${{ steps.build_tests.outcome }}'     -ne 'success') { $failed += 'SeewoAssistant.Tests' }
+          if ('${{ steps.build_app.outcome }}'       -ne 'success') { $failed += 'SeewoAssistant' }
+
+          if ($failed.Count -gt 0) {
+            Write-Error "以下托管项目构建失败：$($failed -join '、')"
+            exit 1
+          }
+
+          Write-Host '全部托管项目构建成功。' -ForegroundColor Green
 
       - name: Run the unit tests
         run: >
@@ -150,6 +217,11 @@ jobs:
 
       # Self-contained single file: the user extracts the zip and runs the exe with
       # no separate Windows App SDK or .NET install.
+      # x64 only. The native components are built for x64 and Win32, and bitness
+      # must match for the capture-guard payload to be injectable, so an ARM64
+      # build would need every native project compiled for ARM64 as well. Shipping
+      # an ARM64 archive whose native components could not load would be worse than
+      # not shipping one, so it is deliberately omitted rather than half-done.
       - name: Publish the application (win-x64)
         run: >
           dotnet publish src/SeewoAssistant/SeewoAssistant.csproj
@@ -157,18 +229,8 @@ jobs:
           -p:PublishSingleFile=true
           -p:WindowsPackageType=None
           -p:WindowsAppSDKSelfContained=true
+          -p:Platform=x64
           -o artifacts/publish/win-x64
-
-      # ARM64 as well, because the Windows App SDK ships native ARM64 binaries and
-      # the app is otherwise architecture neutral.
-      - name: Publish the application (win-arm64)
-        run: >
-          dotnet publish src/SeewoAssistant/SeewoAssistant.csproj
-          -c Release -r win-arm64 --self-contained true
-          -p:PublishSingleFile=true
-          -p:WindowsPackageType=None
-          -p:WindowsAppSDKSelfContained=true
-          -o artifacts/publish/win-arm64
 
       # ------------------------------------------------------------------ assemble
 
@@ -179,48 +241,33 @@ jobs:
       #   native/x86/...                the 32-bit DirectShow filter and payload
       #   scripts/                      install and uninstall helpers
       #   README.md, LICENSE            documentation
-      - name: Assemble the release folders
+      - name: Assemble the release folder
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
 
-          foreach ($arch in @('win-x64', 'win-arm64')) {
-            $target = "artifacts/release/$arch"
-            New-Item -ItemType Directory -Force -Path $target | Out-Null
+          $target = 'artifacts/release/win-x64'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
 
-            Copy-Item "artifacts/publish/$arch/*" $target -Recurse -Force
+          Copy-Item 'artifacts/publish/win-x64/*' $target -Recurse -Force
 
-            # The publish output already contains native/x64 and native/x86 because
-            # the app project copies them; this makes the layout explicit and also
-            # covers a publish that ran before the native build.
-            New-Item -ItemType Directory -Force -Path "$target/native/x64" | Out-Null
-            New-Item -ItemType Directory -Force -Path "$target/native/x86" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$target/native/x64" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$target/native/x86" | Out-Null
 
-            $x64 = Get-ChildItem 'artifacts/native/x64/Release' -File -ErrorAction SilentlyContinue
-            foreach ($file in $x64) {
-              Copy-Item $file.FullName "$target/native/x64/" -Force
-            }
+          Copy-Item 'artifacts/native/x64/Release/*' "$target/native/x64/" -Force
+          Copy-Item 'artifacts/native/Win32/Release/*' "$target/native/x86/" -Force
 
-            $x86 = Get-ChildItem 'artifacts/native/Win32/Release' -File -ErrorAction SilentlyContinue
-            foreach ($file in $x86) {
-              Copy-Item $file.FullName "$target/native/x86/" -Force
-            }
+          # The setup tool sits next to the app so the app finds it by name.
+          Copy-Item 'artifacts/native/x64/Release/SeewoVirtualCamera.Setup.exe' $target -Force
 
-            # The setup tool sits next to the app so the app finds it by name.
-            $setup = Get-ChildItem 'artifacts/native/x64/Release/SeewoVirtualCamera.Setup.exe' -ErrorAction SilentlyContinue
-            if ($setup) {
-              Copy-Item $setup.FullName "$target/SeewoVirtualCamera.Setup.exe" -Force
-            }
+          Copy-Item 'scripts' "$target/scripts" -Recurse -Force
+          Copy-Item 'README.md' $target -Force
+          Copy-Item 'LICENSE' $target -Force
 
-            Copy-Item 'scripts/*' "$target/scripts/" -Recurse -Force -ErrorAction SilentlyContinue
-            Copy-Item 'README.md' $target -Force -ErrorAction SilentlyContinue
-            Copy-Item 'LICENSE' $target -Force -ErrorAction SilentlyContinue
-
-            Write-Host "Contents of $target :"
-            Get-ChildItem $target -Recurse -File |
-              Select-Object @{N='Path';E={$_.FullName.Replace($PWD.Path, '')}}, Length |
-              Format-Table -AutoSize
-          }
+          Write-Host "Contents of $target :"
+          Get-ChildItem $target -Recurse -File |
+            Select-Object @{N='Path';E={$_.FullName.Replace($PWD.Path, '')}}, Length |
+            Format-Table -AutoSize
 
       - name: Create the release archives
         shell: pwsh
@@ -230,9 +277,6 @@ jobs:
 
           Compress-Archive -Path 'artifacts/release/win-x64/*' `
             -DestinationPath 'artifacts/dist/SeewoAssistant-win-x64.zip' -Force
-
-          Compress-Archive -Path 'artifacts/release/win-arm64/*' `
-            -DestinationPath 'artifacts/dist/SeewoAssistant-win-arm64.zip' -Force
 
           # The native components on their own, for someone who already has the app
           # and only wants to update them.

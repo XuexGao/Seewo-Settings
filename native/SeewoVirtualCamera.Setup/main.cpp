@@ -16,6 +16,7 @@
 
 #include <windows.h>
 #include <shellapi.h>
+#include <winternl.h>   // RTL_OSVERSIONINFOW, used by the version check
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfobjects.h>
@@ -23,7 +24,10 @@
 #include <shlwapi.h>
 #include <strsafe.h>
 
+#include <cstdarg>
 #include <cstdio>
+#include <fcntl.h>
+#include <io.h>
 #include <string>
 #include <vector>
 
@@ -445,8 +449,12 @@ Options ParseCommandLine() {
 }  // namespace
 
 int wmain() {
-    // Without this the console shows nothing until the process exits, which makes
-    // the tool look hung.
+    // Every message is wide, and most of them are Chinese. Switching stdout to
+    // UTF-16 mode is what makes the wide output render correctly in a console
+    // instead of producing mojibake. The unbuffered mode is set as well so output
+    // appears as it happens rather than at exit, which otherwise makes the tool
+    // look hung during a slow install.
+    ::_setmode(::_fileno(stdout), _O_U16TEXT);
     ::setvbuf(stdout, nullptr, _IONBF, 0);
 
     const Options options = ParseCommandLine();

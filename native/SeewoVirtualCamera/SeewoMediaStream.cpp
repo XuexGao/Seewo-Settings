@@ -10,9 +10,10 @@
 #include <mfobjects.h>
 #include <mferror.h>
 // PINNAME_VIDEO_CAPTURE and the MFFrameSourceTypes enum used to describe a
-// capture stream.  ksmedia.h needs ks.h first; the PINNAME_* GUIDs themselves
-// resolve from ksguid.lib.
+// capture stream.  ksmedia.h requires ks.h and then ksproxy.h to be included
+// first; the PINNAME_* GUIDs themselves resolve from ksguid.lib.
 #include <ks.h>
+#include <ksproxy.h>
 #include <ksmedia.h>
 
 #include <algorithm>
@@ -62,19 +63,22 @@ HRESULT CreateVideoType(REFGUID subtype, UINT width, UINT height,
   if (SUCCEEDED(hr)) {
     hr = MFSetAttributeRatio(mediaType.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
   }
+  // frame bytes * 8 bits * frame rate
+  const UINT32 frameBytes = (subtype == MFVideoFormat_NV12)
+                                ? (width * height * 3u) / 2u
+                                : width * height * 4u;
+
   if (SUCCEEDED(hr)) {
-    // frame bytes * 8 bits * frame rate
-    const UINT32 frameBytes =
-        (subtype == MFVideoFormat_NV12) ? (width * height * 3u) / 2u
-                                        : width * height * 4u;
     hr = mediaType->SetUINT32(MF_MT_AVG_BITRATE,
                               frameBytes * 8u * kFrameRateNumerator);
   }
   if (SUCCEEDED(hr)) {
-    hr = mediaType->SetUINT32(MF_MT_DEFAULT_STRIDE,
-                              (subtype == MFVideoFormat_NV12)
-                                  ? width
-                                  : width * 4u);
+    // MF_MT_DEFAULT_STRIDE is deliberately not set.  Its sign convention for
+    // RGB formats (positive = bottom-up) is easy to get backwards, and Media
+    // Foundation computes a correct value for a progressive, all-samples-
+    // independent type.  The frame source handles either scanline order when it
+    // writes into the sample buffer.
+    hr = mediaType->SetUINT32(MF_MT_SAMPLE_SIZE, frameBytes);
   }
   if (SUCCEEDED(hr)) {
     *type = mediaType.Detach();
@@ -138,22 +142,32 @@ HRESULT SeewoMediaStream::Initialize(SeewoMediaSource* source, DWORD streamId) {
     hr = ::MFCreateEventQueue(&eventQueue_);
   }
   if (SUCCEEDED(hr)) {
-    // A private work queue for frame production.  MFAllocateWorkQueueEx takes
-    // the queue type and writes the identifier used by MFPutWorkItem.
+    // A private work queue for frame production.
     //
-    // The queue is allocated with its own serialised thread rather than from the
-    // shared MFASYNC_CALLBACK_QUEUE_* set, so a slow producer cannot stall
-    // Media Foundation's own callbacks and two streams can never race.
-    workQueueId_ = 0;
-    hr = ::MFAllocateSerialWorkQueue(MFASYNC_CALLBACK_QUEUE_MULTITHREADED,
-                                     &workQueueId_);
-    workQueueValid_ = SUCCEEDED(hr) && workQueueId_ != 0;
+    // Note the asymmetric APIs: MFAllocateSerialWorkQueue RETURNS the queue
+    // identifier (and takes the queue to serialise against), whereas
+    // MFAllocateWorkQueue takes a DWORD* out-parameter and returns an HRESULT.
+    // Both are used correctly below.
+    //
+    // A serial queue is preferred: it gives frame production its own thread
+    // rather than sharing one of the MFASYNC_CALLBACK_QUEUE_* pools, so a slow
+    // producer cannot stall Media Foundation's own callbacks and two streams can
+    // never race.
+    workQueueId_ = ::MFAllocateSerialWorkQueue(
+        MFASYNC_CALLBACK_QUEUE_MULTITHREADED);
+    workQueueValid_ = (workQueueId_ != 0);
+
     if (!workQueueValid_) {
       // Fall back to a standard work queue if a dedicated serial one could not
       // be created; MFPutWorkItem works with either.
-      workQueueId_ = ::MFAllocateWorkQueue(MFASYNC_CALLBACK_QUEUE_MULTITHREADED);
-      workQueueValid_ = (workQueueId_ != 0);
-      hr = workQueueValid_ ? S_OK : E_FAIL;
+      DWORD fallbackQueueId = 0;
+      const HRESULT hrQueue = ::MFAllocateWorkQueue(&fallbackQueueId);
+      if (SUCCEEDED(hrQueue) && fallbackQueueId != 0) {
+        workQueueId_ = fallbackQueueId;
+        workQueueValid_ = true;
+      } else {
+        hr = FAILED(hrQueue) ? hrQueue : E_FAIL;
+      }
     }
   }
 
@@ -759,6 +773,36 @@ HRESULT SeewoMediaStream::CheckShutdownLocked() const {
   return shutdown_ ? MF_E_SHUTDOWN : S_OK;
 }
 
+// ---------------------------------------------------------------------------
+// IUnknown
+// ---------------------------------------------------------------------------
+
+IFACEMETHODIMP SeewoMediaStream::QueryInterface(REFIID riid, void** ppvObject) {
+  if (ppvObject == nullptr) {
+    return E_POINTER;
+  }
+  *ppvObject = nullptr;
+
+  // IMFMediaStream2 -> IMFMediaStream -> IMFMediaEventGenerator, plus the
+  // IMFMediaTypeHandler and IMFAsyncCallback faces of this object.
+  if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IMFMediaStream2)) {
+    *ppvObject = static_cast<IMFMediaStream2*>(this);
+  } else if (IsEqualIID(riid, IID_IMFMediaStream)) {
+    *ppvObject = static_cast<IMFMediaStream*>(this);
+  } else if (IsEqualIID(riid, IID_IMFMediaEventGenerator)) {
+    *ppvObject = static_cast<IMFMediaEventGenerator*>(this);
+  } else if (IsEqualIID(riid, IID_IMFMediaTypeHandler)) {
+    *ppvObject = static_cast<IMFMediaTypeHandler*>(this);
+  } else if (IsEqualIID(riid, IID_IMFAsyncCallback)) {
+    *ppvObject = static_cast<IMFAsyncCallback*>(this);
+  } else {
+    return E_NOINTERFACE;
+  }
+
+  AddRef();
+  return S_OK;
+}
+
 HRESULT SeewoMediaStream::CheckStreamStateLocked() const {
   // Only a running stream produces samples.  Paused and stopped streams reject
   // the request, which is how the source signals back-pressure to the pipeline.
@@ -785,6 +829,9 @@ HRESULT SeewoMediaStream::ProduceSample() {
   if (!shutdown_ && state_ == MF_STREAM_STATE_RUNNING && selected_ &&
       !tokens_.empty()) {
     token = tokens_.front();
+    // pop_front() on a vector is a move of the whole tail; the queue is at most
+    // a handful of entries deep (one per outstanding pipeline request), so this
+    // is cheaper than a std::deque here and avoids another allocation.
     tokens_.erase(tokens_.begin());
     queue = eventQueue_;
     duration = frameDuration_;
@@ -806,6 +853,13 @@ HRESULT SeewoMediaStream::ProduceSample() {
     return S_OK;
   }
 
+  // A zero-sized frame would make the buffer size meaningless; the state machine
+  // prevents it, but check anyway so a bad media type cannot underflow the math
+  // below.
+  if (width == 0 || height == 0) {
+    return MF_E_INVALIDMEDIATYPE;
+  }
+
   const DWORD bufferBytes =
       (format == FrameOutputFormat::kRgb32)
           ? (width * height * 4u)
@@ -814,17 +868,15 @@ HRESULT SeewoMediaStream::ProduceSample() {
   Microsoft::WRL::ComPtr<IMFMediaBuffer> buffer;
   HRESULT hr = ::MFCreateMemoryBuffer(bufferBytes, &buffer);
   if (FAILED(hr)) {
-    return hr;
+    queue->QueueEventParamVar(MEError, GUID_NULL, hr, nullptr);
+    return S_OK;
   }
 
   Microsoft::WRL::ComPtr<IMFSample> sample;
-  if (SUCCEEDED(hr)) {
-    hr = ::MFCreateSample(&sample);
-  }
+  hr = ::MFCreateSample(&sample);
   if (SUCCEEDED(hr)) {
     hr = sample->AddBuffer(buffer.Get());
   }
-
   if (SUCCEEDED(hr)) {
     hr = frameSource_.ProduceFrame(sample.Get(), sampleTime, duration);
   }

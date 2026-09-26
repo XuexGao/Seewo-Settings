@@ -30,30 +30,29 @@ using Microsoft::WRL::Module;
 // another component in the same process still holds references would be
 // harmful.  Returns a real failure HRESULT so DllGetClassObject can report it
 // instead of handing out a broken class object.
+//
+// A function-local static initialised by an immediately-invoked lambda is used
+// rather than InitOnceExecuteOnce: C++11 guarantees the initialisation runs
+// exactly once and is thread-safe, and it avoids the PVOID-context casting that
+// InitOnceExecuteOnce's callback signature forces.
 HRESULT EnsureRuntimeInitialized() {
-  static INIT_ONCE once = INIT_ONCE_STATIC_INIT;
-  static HRESULT startupResult = E_PENDING;
-
-  struct Starter {
-    static BOOL CALLBACK Callback(PINIT_ONCE, PVOID, PVOID* context) {
-      HRESULT* result = static_cast<HRESULT*>(context);
-      // MFSTARTUP_LITE is enough: this DLL uses the core Media Foundation
-      // platform (media types, samples, event queues, work queues) and does not
-      // need the full pipeline, which would also spin up work queues of its own.
-      *result = ::MFStartup(MF_VERSION, MFSTARTUP_LITE);
-      if (SUCCEEDED(*result)) {
-        // WRL's module owns the class-object bookkeeping and the object count
-        // consulted by DllCanUnloadNow.  Create() is idempotent.
-        const HRESULT createResult = Module<InProc>::Create();
-        if (FAILED(createResult)) {
-          *result = createResult;
-        }
-      }
-      return TRUE;
+  static const HRESULT startupResult = []() -> HRESULT {
+    // MFSTARTUP_LITE is enough: this DLL uses the core Media Foundation platform
+    // (media types, samples, event queues, work queues) and does not need the
+    // full pipeline, which would also spin up work queues of its own.
+    const HRESULT hr = ::MFStartup(MF_VERSION, MFSTARTUP_LITE);
+    if (FAILED(hr)) {
+      return hr;
     }
-  };
 
-  ::InitOnceExecuteOnce(&once, Starter::Callback, &startupResult, nullptr);
+    // The WRL module singleton is created lazily by GetModule() and GetClassObject()
+    // themselves, so there is nothing else to do here.  GetModule() returns a
+    // module reference rather than an HRESULT, hence the deliberate discard.
+    (void)Module<InProc>::GetModule();
+
+    return S_OK;
+  }();
+
   return startupResult;
 }
 

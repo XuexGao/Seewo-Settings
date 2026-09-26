@@ -366,6 +366,14 @@ bool ModuleCanUnload() {
     return g_moduleLocks.load() == 0 && g_objectCount.load() == 0;
 }
 
+void AddRefObject() {
+    g_objectCount.fetch_add(1);
+}
+
+void ReleaseObject() {
+    g_objectCount.fetch_sub(1);
+}
+
 // ---------------------------------------------------------------------------
 // Exported entry points
 // ---------------------------------------------------------------------------

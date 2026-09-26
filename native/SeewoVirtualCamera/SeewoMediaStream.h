@@ -37,15 +37,23 @@ namespace seewo {
 
 class SeewoMediaSource;
 
-class SeewoMediaStream
-    : public Microsoft::WRL::RuntimeClass<
-          Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
-          IMFMediaStream2,
-          IMFMediaTypeHandler,
-          IMFAsyncCallback> {
+// The WRL base.  Only the most derived interface of each chain is listed; base
+// interfaces (IMFMediaStream, IMFMediaEventGenerator) are resolved by the
+// explicit QueryInterface below.
+using SeewoMediaStreamRuntimeClass = Microsoft::WRL::RuntimeClass<
+    Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
+    IMFMediaStream2,
+    IMFMediaTypeHandler,
+    IMFAsyncCallback>;
+
+class SeewoMediaStream : public SeewoMediaStreamRuntimeClass {
  public:
   SeewoMediaStream() noexcept;
   ~SeewoMediaStream() override;
+
+  // IUnknown.  Resolves the whole IMFMediaStream2 chain so a caller can ask for
+  // IMFMediaStream or IMFMediaEventGenerator directly.
+  IFACEMETHODIMP QueryInterface(REFIID riid, void** ppvObject) override;
 
   // Creates the media types, the stream descriptor, the event queue and the
   // private work queue.  `source` is stored as a weak back pointer (the source

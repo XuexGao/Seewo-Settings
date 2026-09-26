@@ -131,6 +131,12 @@ void LockModule();
 void UnlockModule();
 bool ModuleCanUnload();
 
+// Object census. DllCanUnloadNow must not return S_OK while a live filter
+// instance exists, even if no class factory or server lock is outstanding:
+// unloading the DLL would unmap the code of an object the graph still holds.
+void AddRefObject();
+void ReleaseObject();
+
 // Declared here so dllmain.cpp can define them inside the namespace while the
 // exported entry points stay outside it.
 bool IsProcessElevated();

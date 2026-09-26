@@ -62,6 +62,12 @@ class __declspec(uuid("A7E4B2C1-5D3F-4A88-9B6E-1C2D3E4F5A60"))
   // object is returned to COM.
   HRESULT Initialize();
 
+  // IUnknown.  Implemented explicitly so that IMFAttributes - a base of
+  // IMFActivate - is reachable through QueryInterface with the same COM
+  // identity, independently of how the WRL version in the SDK walks base
+  // interfaces.
+  IFACEMETHODIMP QueryInterface(REFIID riid, void** ppvObject) override;
+
   // --- IMFActivate ---------------------------------------------------------
   IFACEMETHODIMP ActivateObject(REFIID riid, void** ppvObject) override;
   IFACEMETHODIMP ShutdownObject() override;

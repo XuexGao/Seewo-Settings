@@ -362,6 +362,9 @@ public sealed partial class CaptureGuardPage : ModulePageBase
             }
         }
 
+        // Clearing the collection drops the ListView selection; re-read it here so the
+        // action buttons and the field cannot disagree about what is selected.
+        _selected = WindowList.SelectedItem as WindowInfo;
         UpdateSelectedWindowState();
 
         static bool Contains(string value, string filter) =>
@@ -603,7 +606,7 @@ public sealed partial class CaptureGuardPage : ModulePageBase
 }
 
 /// <summary>Renders a protection state using the same wording as the service.</summary>
-public sealed partial class CaptureProtectionLabelConverter : IValueConverter
+public sealed partial class ProtectionStateConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language) =>
         value is CaptureProtectionState state ? CaptureGuardService.Describe(state) : string.Empty;
@@ -613,7 +616,7 @@ public sealed partial class CaptureProtectionLabelConverter : IValueConverter
 }
 
 /// <summary>Renders window ownership as text for the picker rows.</summary>
-public sealed partial class OwnProcessLabelConverter : IValueConverter
+public sealed partial class OwnProcessConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language) =>
         value is bool isOwnProcess

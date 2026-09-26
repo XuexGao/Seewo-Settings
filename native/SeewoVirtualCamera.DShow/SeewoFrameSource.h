@@ -182,6 +182,10 @@ private:
                         uint32_t width,
                         uint32_t height);
 
+    // Paints the whole destination with the neutral "no signal" level. Used
+    // before a partial write so the uncovered region is never stale pixels.
+    static void FillBackground(const FrameRequest& request);
+
     // --- State ----------------------------------------------------------------
     uint32_t width_ = 0;
     uint32_t height_ = 0;
@@ -197,7 +201,12 @@ private:
     bool lastFrameFromChannel_ = false;
 
     // Cached test pattern, always BGRA top-down with stride == width * 4.
+    // pattern_ is the pristine base and is never mutated after it is built;
+    // frame_ is the per-frame scratch copy the moving sweep bar is drawn into.
+    // Inverting the base in place would accumulate across frames and gradually
+    // turn the whole image negative.
     std::vector<uint8_t> pattern_;
+    std::vector<uint8_t> frame_;
     uint32_t patternWidth_ = 0;
     uint32_t patternHeight_ = 0;
 };

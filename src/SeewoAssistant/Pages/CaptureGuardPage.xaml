@@ -3,11 +3,11 @@
     x:Class="SeewoAssistant.Pages.CaptureGuardPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:SeewoAssistant.Pages"
-    xmlns:models="using:SeewoAssistant.Core.Models">
+    xmlns:local="using:SeewoAssistant.Pages">
 
     <local:ModulePageBase.Resources>
-        <local:CaptureProtectionLabelConverter x:Key="ProtectionLabelConverter" />
+        <local:ProtectionStateConverter x:Key="ProtectionStateConverter" />
+        <local:OwnProcessConverter x:Key="OwnProcessConverter" />
     </local:ModulePageBase.Resources>
 
     <ScrollViewer Padding="32,24,32,32">
@@ -30,7 +30,7 @@
                                Text="因此，保护本程序自己的窗口总是可以成功；而保护别的程序的窗口（例如微信、浏览器）必须先把一小段载荷注入到对方进程里，再由对方进程去调用同一个接口。" />
 
                     <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="注入默认是关闭的，必须由你在这里手动打开，并且：杀毒软件和安全软件可能直接拦截它；部分系统进程会被拒绝注入；某些以更高权限运行的进程即使注入成功也会调用失败。" />
+                               Text="注入默认是关闭的，必须由你在这里手动打开。开启后仍然存在这些风险：杀毒软件和安全软件可能直接拦截它；部分系统进程会被拒绝注入；某些以更高权限运行的进程即使注入成功也会调用失败。" />
 
                     <InfoBar IsOpen="True"
                              IsClosable="False"
@@ -64,7 +64,7 @@
                     </StackPanel>
 
                     <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="验证方法：点「保护本程序窗口」后，按 Win+Shift+S 截图并框选本窗口所在的区域。窗口区域会变成空白或黑色；取消保护后再截一次就恢复正常。" />
+                               Text="验证方法：点「保护本程序窗口」后，按 Win+Shift+S 截图并框选本窗口所在的区域。窗口区域会变成空白或黑色；点「取消保护」后再截一次就恢复正常。" />
                 </StackPanel>
             </Border>
 
@@ -149,7 +149,7 @@
                               SelectionMode="Single"
                               SelectionChanged="OnWindowSelectionChanged">
                         <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="models:WindowInfo">
+                            <DataTemplate>
                                 <Grid ColumnSpacing="12" Padding="0,6">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -157,21 +157,31 @@
                                     </Grid.ColumnDefinitions>
 
                                     <StackPanel Grid.Column="0" Spacing="2">
-                                        <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                                        <TextBlock Style="{StaticResource CardBodyStyle}" FontSize="12">
-                                            <Run Text="{x:Bind ProcessName}" />
-                                            <Run Text=" · " />
-                                            <Run Text="{x:Bind ClassName}" />
-                                            <Run Text=" · " />
-                                            <Run Text="{x:Bind HandleHex}" />
-                                            <Run Text="{x:Bind IsOwnProcess}" />
-                                        </TextBlock>
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="{Binding ProcessName}"
+                                                       Style="{StaticResource CardBodyStyle}"
+                                                       FontSize="12" />
+                                            <TextBlock Text="·" Style="{StaticResource CardBodyStyle}" FontSize="12" />
+                                            <TextBlock Text="{Binding ClassName}"
+                                                       Style="{StaticResource CardBodyStyle}"
+                                                       FontSize="12" />
+                                            <TextBlock Text="·" Style="{StaticResource CardBodyStyle}" FontSize="12" />
+                                            <TextBlock Text="{Binding HandleHex}"
+                                                       Style="{StaticResource MonospaceStyle}"
+                                                       FontSize="12" />
+                                            <TextBlock Text="·" Style="{StaticResource CardBodyStyle}" FontSize="12" />
+                                            <TextBlock Text="{Binding IsOwnProcess, Converter={StaticResource OwnProcessConverter}}"
+                                                       Style="{StaticResource CardBodyStyle}"
+                                                       FontSize="12" />
+                                        </StackPanel>
                                     </StackPanel>
 
                                     <TextBlock Grid.Column="1"
                                                VerticalAlignment="Center"
                                                FontSize="12"
-                                               Text="{Binding Protection, Converter={StaticResource ProtectionLabelConverter}}" />
+                                               Text="{Binding Protection, Converter={StaticResource ProtectionStateConverter}}" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
@@ -208,7 +218,7 @@
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="RadarButton" Click="OnToggleRadar" Style="{StaticResource AccentButtonStyle}">
-                            <TextBlock Text="雷达取景" />
+                            <TextBlock x:Name="RadarButtonText" Text="雷达取景" />
                         </Button>
 
                         <Button x:Name="RadarConfirmButton" Click="OnConfirmRadar" IsEnabled="False">
@@ -231,7 +241,6 @@
                         <TextBlock x:Name="RadarPreviewText"
                                    Style="{StaticResource MonospaceStyle}"
                                    FontSize="12"
-                                   TextWrapping="Wrap"
                                    Text="（未开始取景）" />
                     </Border>
                 </StackPanel>

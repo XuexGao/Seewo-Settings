@@ -534,12 +534,10 @@ STDMETHODIMP MediaTypeEnumerator::Clone(IEnumMediaTypes** enumerator) {
 // 4. StreamContext and the worker thread
 // ---------------------------------------------------------------------------
 
-}  // namespace dshow
-}  // namespace seewo
-
-// StreamContext lives at global scope so the C-style thread entry point can take
-// it without dragging the namespace into a function pointer signature.
-struct seewo::dshow::StreamContext {
+// One streaming session. Created by StartStreaming, owned jointly by the pin
+// (while it is the current session) and by the worker thread (which holds its
+// own reference so the object survives a wedged downstream Receive).
+struct StreamContext {
     std::atomic<LONG> refCount{1};
 
     // Thread plumbing. Owned by the context.
@@ -576,9 +574,6 @@ struct seewo::dshow::StreamContext {
     std::atomic<uint64_t> framesFromChannel{0};
     std::atomic<uint64_t> receiveFailures{0};
 };
-
-namespace seewo {
-namespace dshow {
 
 namespace {
 
@@ -909,6 +904,17 @@ bool StopAndJoinStream(StreamContext* context, DWORD timeoutMs) {
 SeewoOutputPin::SeewoOutputPin(SeewoDShowFilter* filter) : filter_(filter) {
     ::InitializeCriticalSection(&lock_);
     lockInitialised_ = true;
+
+    // Seed the negotiated format with the first advertised entry so
+    // GetAllocatorRequirements and GetFormat have a truthful answer before any
+    // connection is made. Assigned in the body rather than the member-init list
+    // because format_ is declared after the other members and /W4 flags
+    // out-of-order initialisation.
+    const VideoFormat* first = VideoFormatAt(0);
+    if (first != nullptr) {
+        format_ = *first;
+    }
+
     // Every live pin pins the DLL in memory. DllCanUnloadNow consults this, so
     // COM can never unload us while a streaming thread is executing our code.
     LockModule();
@@ -1205,12 +1211,15 @@ STDMETHODIMP SeewoOutputPin::QueryPinInfo(PIN_INFO* info) {
         return E_POINTER;
     }
 
-    info->pFilter = nullptr;
-    if (filter_ != nullptr) {
-        // PIN_INFO::pFilter is a borrowed pointer per the DirectShow contract:
-        // the caller does not release it. The filter outlives the pin because
-        // the filter owns the pin's initial reference.
-        info->pFilter = filter_;
+    // PIN_INFO::pFilter is an AddRef'd out-parameter, exactly as
+    // CBasePin::QueryPinInfo does it. Handing back a borrowed pointer would make
+    // a caller that follows the documented contract release a reference we never
+    // gave it, freeing the filter while the graph is still using it. The AddRef
+    // is taken without our lock held so it can never deadlock us.
+    SeewoDShowFilter* filter = filter_;
+    info->pFilter = filter;
+    if (filter != nullptr) {
+        filter->AddRef();
     }
     info->dir = PINDIR_OUTPUT;
     ::StringCchCopyW(info->achName, NUMELMS(info->achName),
@@ -1369,8 +1378,7 @@ STDMETHODIMP SeewoOutputPin::GetAllocatorRequirements(
     std::memset(properties, 0, sizeof(*properties));
 
     PinLock guard(lock_);
-    const uint32_t imageSize =
-        hasFormat_ ? VideoFormatImageSize(format_) : (1920u * 1080u * 4u);
+    const uint32_t imageSize = VideoFormatImageSize(format_);
     properties->cBuffers = kDefaultBufferCount;
     properties->cbBuffer = static_cast<LONG>(imageSize);
     properties->cbAlign = 1;
@@ -1517,10 +1525,13 @@ STDMETHODIMP SeewoOutputPin::GetStreamCaps(int index,
 
     const REFERENCE_TIME interval =
         static_cast<REFERENCE_TIME>(10000000LL / static_cast<int64_t>(format->fps));
-    const LONG imageSize = static_cast<LONG>(VideoFormatImageSize(*format));
 
     // VIDEO_STREAM_CONFIG_CAPS describes a *range* of supported settings for one
     // format. Each entry here is fully constrained, so min == max everywhere.
+    //
+    // The struct has exactly these members and no more: the interlace flags,
+    // picture aspect ratio, and Min/MaxSampleSize fields people reach for here
+    // belong to VIDEOINFOHEADER2, not to this structure.
     auto* caps = reinterpret_cast<VIDEO_STREAM_CONFIG_CAPS*>(capabilities);
     std::memset(caps, 0, sizeof(*caps));
     caps->guid = FORMAT_VideoInfo;
@@ -1546,14 +1557,6 @@ STDMETHODIMP SeewoOutputPin::GetStreamCaps(int index,
     caps->MaxFrameInterval = interval;
     caps->MinBitsPerSecond = 0;
     caps->MaxBitsPerSecond = 0;
-    caps->MinSampleSize = imageSize;
-    caps->MaxSampleSize = imageSize;
-    caps->dwInterlaceFlags = 0;
-    caps->dwCopyProtectFlags = 0;
-    caps->dwPictAspectRatioX = static_cast<DWORD>(format->width);
-    caps->dwPictAspectRatioY = static_cast<DWORD>(format->height);
-    caps->dwReserved1 = 0;
-    caps->dwReserved2 = 0;
 
     *mediaType = created;
     return S_OK;
@@ -1647,12 +1650,12 @@ STDMETHODIMP SeewoOutputPin::SetSink(IQualityControl* sink) {
 
 // --- Filter-facing streaming control ----------------------------------------
 
-HRESULT SeewoOutputPin::StartStreaming() {
+HRESULT SeewoOutputPin::StartStreaming(bool startPaused) {
     // Already running: nothing to do. Repeated Run() calls are normal.
     if (streaming_.load(std::memory_order_acquire)) {
         PinLock guard(lock_);
         if (context_ != nullptr) {
-            context_->paused.store(false, std::memory_order_release);
+            context_->paused.store(startPaused, std::memory_order_release);
             context_->pauseRequested.store(false, std::memory_order_release);
         }
         return S_OK;
@@ -1751,6 +1754,10 @@ HRESULT SeewoOutputPin::StartStreaming() {
 
         context->allocator = allocator;
         context->allocator->AddRef();
+
+        // A Pause() transition brings the session up already paused, so the
+        // worker cannot slip a frame out before the graph is ready for it.
+        context->paused.store(startPaused, std::memory_order_release);
 
         // Commit the session under the lock so two concurrent Run() calls cannot
         // both start a worker. The flag is set before the peer calls below.
@@ -1881,32 +1888,27 @@ bool SeewoOutputPin::IsStreaming() const {
 
 // --- Internals --------------------------------------------------------------
 
-bool SeewoOutputPin::ResolveStreamFormat(AM_MEDIA_TYPE* out) const {
-    if (out == nullptr) {
-        return false;
-    }
-    const VideoFormat* format = hasFormat_ ? &format_ : VideoFormatAt(0);
-    if (format == nullptr) {
-        return false;
-    }
-    return MakeMediaType(*format, out);
-}
-
 HRESULT SeewoOutputPin::PrepareAllocator(IMemAllocator* allocator) {
-    if (allocator == nullptr || inputPin_ == nullptr) {
-        return VFW_E_NOT_CONNECTED;
-    }
-
-    const uint32_t imageSize = VideoFormatImageSize(format_);
-
+    // Snapshot the pin state we need under the lock, then make the peer calls
+    // without it. Disconnect may have retired the connection in the meantime, in
+    // which case there is nothing to prepare.
+    IMemInputPin* inputPin = nullptr;
+    uint32_t imageSize = 0;
     ALLOCATOR_PROPERTIES requested{};
-    requested.cBuffers = kDefaultBufferCount;
-    requested.cbBuffer = static_cast<LONG>(imageSize);
-    requested.cbAlign = 1;
-    requested.cbPrefix = 0;
-
     {
         PinLock guard(lock_);
+        if (inputPin_ == nullptr) {
+            return VFW_E_NOT_CONNECTED;
+        }
+        inputPin = inputPin_;
+        inputPin->AddRef();
+
+        imageSize = VideoFormatImageSize(format_);
+        requested.cBuffers = kDefaultBufferCount;
+        requested.cbBuffer = static_cast<LONG>(imageSize);
+        requested.cbAlign = 1;
+        requested.cbPrefix = 0;
+
         if (hasSuggestedProperties_) {
             // Honour the peer's hint, but never below what one frame needs.
             if (suggestedProperties_.cBuffers > 0) {
@@ -1924,6 +1926,11 @@ HRESULT SeewoOutputPin::PrepareAllocator(IMemAllocator* allocator) {
         }
     }
 
+    if (allocator == nullptr) {
+        inputPin->Release();
+        return VFW_E_NOT_CONNECTED;
+    }
+
     ALLOCATOR_PROPERTIES actual{};
     HRESULT hr = allocator->SetProperties(&requested, &actual);
     if (FAILED(hr)) {
@@ -1932,21 +1939,25 @@ HRESULT SeewoOutputPin::PrepareAllocator(IMemAllocator* allocator) {
         // long as the existing buffers can hold one frame.
         hr = allocator->GetProperties(&actual);
         if (FAILED(hr) || actual.cbBuffer < static_cast<LONG>(imageSize)) {
+            inputPin->Release();
             return VFW_E_BUFFER_UNDERFLOW;
         }
     } else if (actual.cbBuffer < static_cast<LONG>(imageSize)) {
         // The allocator rounded our request down below one frame. Nothing can
         // stream from buffers this small.
+        inputPin->Release();
         return VFW_E_BUFFER_UNDERFLOW;
     }
 
     // The read-only flag is FALSE: we are the writer.
-    hr = inputPin_->NotifyAllocator(allocator, FALSE);
+    hr = inputPin->NotifyAllocator(allocator, FALSE);
     if (FAILED(hr) && hr != E_NOTIMPL) {
         // A peer that does not care about allocator notification returns
         // E_NOTIMPL; anything else is a genuine refusal.
+        inputPin->Release();
         return hr;
     }
+    inputPin->Release();
 
     hr = allocator->Commit();
     if (FAILED(hr)) {

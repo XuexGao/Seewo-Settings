@@ -175,6 +175,10 @@ SeewoDShowFilter::SeewoDShowFilter() {
     ::InitializeCriticalSection(&lock_);
     ::StringCchCopyW(name_, NUMELMS(name_), kFriendlyName);
 
+    // Counted so DllCanUnloadNow refuses to unload the DLL while a filter
+    // instance is alive, even between a Run and its matching Stop.
+    AddRefObject();
+
     pin_ = new (std::nothrow) SeewoOutputPin(this);
     // pin_ stays nullptr if the allocation failed; every method below tolerates
     // that rather than crashing inside a graph.
@@ -193,6 +197,10 @@ SeewoDShowFilter::~SeewoDShowFilter() {
         graph_ = nullptr;
     }
     ::DeleteCriticalSection(&lock_);
+
+    // Paired with the constructor, and after the pin has dropped its own module
+    // lock, so the counts unwind in the order they were taken.
+    ReleaseObject();
 }
 
 STDMETHODIMP SeewoDShowFilter::QueryInterface(REFIID riid, void** ppv) {
@@ -268,15 +276,12 @@ STDMETHODIMP SeewoDShowFilter::Pause() {
     ::LeaveCriticalSection(&lock_);
 
     // Pausing from Stopped is the graph's way of asking us to allocate buffers
-    // and get ready without delivering frames yet. Starting the session and then
-    // holding it paused gives the graph a committed allocator, which is exactly
-    // what a capture app checks before it calls Run.
+    // and get ready without delivering frames yet. Starting the session already
+    // paused gives the graph a committed allocator, which is exactly what a
+    // capture app checks before it calls Run.
     HRESULT hr = S_OK;
     if (previous == State_Stopped) {
-        hr = pin_->StartStreaming();
-        if (SUCCEEDED(hr)) {
-            hr = pin_->PauseStreaming();
-        }
+        hr = pin_->StartStreaming(/*startPaused=*/true);
     } else {
         hr = pin_->PauseStreaming();
     }
@@ -298,7 +303,7 @@ STDMETHODIMP SeewoDShowFilter::Run(REFERENCE_TIME start) {
 
     // StartStreaming is idempotent: from Paused it clears the pause flag and
     // resumes the existing session without reallocating or renegotiating.
-    const HRESULT hr = pin_->StartStreaming();
+    const HRESULT hr = pin_->StartStreaming(/*startPaused=*/false);
     if (FAILED(hr)) {
         return hr;
     }
@@ -414,13 +419,24 @@ STDMETHODIMP SeewoDShowFilter::QueryFilterInfo(FILTER_INFO* info) {
         return E_POINTER;
     }
 
-    ::EnterCriticalSection(&lock_);
-    // FILTER_INFO::pGraph is a borrowed reference per the DirectShow contract;
-    // the caller must not release it. We hold our own reference for as long as
-    // we are in a graph.
-    info->pGraph = graph_;
-    ::StringCchCopyW(info->achName, NUMELMS(info->achName), name_);
-    ::LeaveCriticalSection(&lock_);
+    IFilterGraph* graph = nullptr;
+    {
+        ::EnterCriticalSection(&lock_);
+        graph = graph_;
+        ::StringCchCopyW(info->achName, NUMELMS(info->achName), name_);
+        ::LeaveCriticalSection(&lock_);
+    }
+
+    // FILTER_INFO::pGraph is an AddRef'd out-parameter, exactly as
+    // CBaseFilter::QueryFilterInfo does it. Returning a borrowed pointer here
+    // would make a caller that follows the documented contract release a
+    // reference we never handed out, dropping the graph while it is still in
+    // use. The AddRef is taken outside the lock so a re-entrant AddRef can
+    // never deadlock us.
+    info->pGraph = graph;
+    if (graph != nullptr) {
+        graph->AddRef();
+    }
     return S_OK;
 }
 
