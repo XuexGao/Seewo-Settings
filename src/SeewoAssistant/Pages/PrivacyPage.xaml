@@ -56,7 +56,8 @@
                              Severity="Informational" />
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="StartButton" Click="OnStartMonitor" Style="{StaticResource AccentButtonStyle}">
+                        <Button x:Name="StartButton" Click="OnStartMonitor" Style="{StaticResource AccentButtonStyle}"
+                            AutomationProperties.Name="启动监控">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE768;" FontSize="14" />
                                 <TextBlock Text="启动监控" />

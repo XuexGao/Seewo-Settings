@@ -22,7 +22,11 @@ public sealed partial class MainWindow : Window
     private readonly TrayIcon? _trayIcon;
 
     private AppWindow? _appWindow;
+    private DispatcherTimer? _statusTimer;
     private bool _exitRequested;
+    private bool _lastPrivacyRunning;
+    private bool _lastCameraPumping;
+    private bool _lastStoreReady;
 
     public MainWindow(AppServices services)
     {
@@ -57,6 +61,19 @@ public sealed partial class MainWindow : Window
         Closed += OnClosed;
         UpdateElevationBadge();
         UpdateStatusBar();
+
+        // The services that the footer reports on are started by
+        // App.OnLaunched *after* this window is constructed, so a single
+        // UpdateStatusBar() here would leave the footer showing "已停止" for the
+        // whole session. A slow timer keeps it truthful without any of the services
+        // needing to raise a change event.
+        _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _statusTimer.Tick += (_, _) =>
+        {
+            UpdateStatusBar();
+            UpdateTrayTooltip();
+        };
+        _statusTimer.Start();
     }
 
     private void ConfigureWindow()
@@ -86,7 +103,15 @@ public sealed partial class MainWindow : Window
             AppTitleBar.Visibility = Visibility.Collapsed;
         }
 
-        _appWindow.Resize(new SizeInt32(1180, 820));
+        // A fixed 1180x820 is larger than the usable area on a 1024x768 display or a
+        // small virtual desktop, which pushes the window partly off-screen and makes
+        // its own bottom edge unreachable. Clamp to the work area instead, leaving a
+        // small margin so the window still reads as a window.
+        var workArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary).WorkArea;
+        var width = Math.Min(1180, Math.Max(720, workArea.Width - 80));
+        var height = Math.Min(820, Math.Max(520, workArea.Height - 80));
+
+        _appWindow.Resize(new SizeInt32(width, height));
 
         // Mica gives the window the Windows 11 depth effect. On Windows 10 the
         // backdrop is unavailable, so a plain solid brush is used instead; the app
@@ -288,13 +313,34 @@ public sealed partial class MainWindow : Window
 
     private void UpdateStatusBar()
     {
-        PrivacyStatusText.Text = _services.PrivacyMonitor.IsRunning
-            ? (_services.PrivacyMonitor.IsStoreReady ? "隐私监控：运行中" : "隐私监控：等待系统记录")
-            : "隐私监控：已停止";
+        var privacyRunning = _services.PrivacyMonitor.IsRunning;
+        var storeReady = _services.PrivacyMonitor.IsStoreReady;
+        var cameraPumping = _services.VirtualCamera.IsPumping;
 
-        CameraStatusText.Text = _services.VirtualCamera.IsPumping
-            ? $"虚拟摄像头：推流中（{_services.VirtualCamera.PublishedFrames} 帧）"
-            : "虚拟摄像头：已停止";
+        // Only touch the UI when something changed. Re-assigning identical strings
+        // every tick would be wasted work and would fight text selection.
+        if (privacyRunning != _lastPrivacyRunning || storeReady != _lastStoreReady)
+        {
+            _lastPrivacyRunning = privacyRunning;
+            _lastStoreReady = storeReady;
+
+            PrivacyStatusText.Text = privacyRunning
+                ? (storeReady ? "隐私监控：运行中" : "隐私监控：等待系统记录")
+                : "隐私监控：已停止";
+        }
+
+        if (cameraPumping != _lastCameraPumping)
+        {
+            _lastCameraPumping = cameraPumping;
+            CameraStatusText.Text = "虚拟摄像头：推流中";
+        }
+
+        // The published-frame count changes constantly while pumping, so it is
+        // updated on every tick but only when there is something to show.
+        if (cameraPumping)
+        {
+            CameraStatusText.Text = $"虚拟摄像头：推流中（{_services.VirtualCamera.PublishedFrames} 帧）";
+        }
     }
 
     private void UpdateElevationBadge()
@@ -366,6 +412,9 @@ public sealed partial class MainWindow : Window
         }
 
         _exitRequested = true;
+
+        _statusTimer?.Stop();
+        _statusTimer = null;
 
         _services.StatusReported -= OnStatusReported;
         _services.PrivacyMonitor.UsageDetected -= OnPrivacyUsageDetected;

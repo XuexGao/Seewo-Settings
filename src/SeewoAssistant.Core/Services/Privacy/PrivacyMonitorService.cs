@@ -110,6 +110,9 @@ public sealed class PrivacyMonitorService : IAsyncDisposable
     private readonly DeviceHandleScanner _handleScanner;
 
     private readonly List<RegistryChangeWatcher> _watchers = [];
+
+    /// <summary>Devices whose consent-store key exists and is being watched.</summary>
+    private readonly HashSet<PrivacyDevice> _armedDevices = [];
     private readonly Dictionary<string, bool> _lastKnownState = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<PrivacyUsageEvent> _recent = [];
     private readonly object _gate = new();
@@ -139,6 +142,22 @@ public sealed class PrivacyMonitorService : IAsyncDisposable
 
     /// <summary>True when the consent store keys were found and the watchers are live.</summary>
     public bool IsStoreReady => _storeReady;
+
+    /// <summary>
+    /// The devices whose consent-store key actually exists and is being watched.
+    /// Exposed so the UI can say precisely which devices are observable instead of
+    /// implying that both are.
+    /// </summary>
+    public IReadOnlyCollection<PrivacyDevice> ArmedDevices
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _armedDevices.ToList();
+            }
+        }
+    }
 
     /// <summary>The most recent events, newest first. Capped at 200 entries.</summary>
     public IReadOnlyList<PrivacyUsageEvent> RecentEvents
@@ -196,6 +215,12 @@ public sealed class PrivacyMonitorService : IAsyncDisposable
         }
 
         _storeReady = false;
+
+        lock (_gate)
+        {
+            _armedDevices.Clear();
+        }
+
         _logger.Info("Privacy monitor stopped.");
     }
 
@@ -260,6 +285,18 @@ public sealed class PrivacyMonitorService : IAsyncDisposable
             }
 
             armedAny |= watcher.IsArmed;
+
+            lock (_gate)
+            {
+                if (watcher.IsArmed)
+                {
+                    _armedDevices.Add(device);
+                }
+                else
+                {
+                    _armedDevices.Remove(device);
+                }
+            }
 
             if (!watcher.IsArmed)
             {

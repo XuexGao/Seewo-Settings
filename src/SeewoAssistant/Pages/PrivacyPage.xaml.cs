@@ -97,6 +97,10 @@ public sealed partial class PrivacyPage : ModulePageBase
         };
     }
 
+    /// <summary>How many devices the current settings ask us to watch.</summary>
+    private int DescribeMonitoredDeviceCount() =>
+        (Services.Settings.MonitorCamera ? 1 : 0) + (Services.Settings.MonitorMicrophone ? 1 : 0);
+
     private void UpdateStoreState(bool running)
     {
         var ready = Services.PrivacyMonitor.IsStoreReady;
@@ -107,17 +111,35 @@ public sealed partial class PrivacyPage : ModulePageBase
             StoreBadgeText.Text = "未监视";
             SetBadge(StoreBadge, StoreBadgeText, StoreBadgeText.Text, active: false);
         }
-        else if (ready)
-        {
-            StoreStateText.Text = $"已找到{DescribeMonitoredDevices()}的授权记录，可以实时收到变化通知。";
-            StoreBadgeText.Text = "已就绪";
-            SetBadge(StoreBadge, StoreBadgeText, StoreBadgeText.Text, active: true);
-        }
         else
         {
-            StoreStateText.Text = "监控正在运行，但系统中还没有找到对应的授权记录。";
-            StoreBadgeText.Text = "等待中";
-            SetBadge(StoreBadge, StoreBadgeText, StoreBadgeText.Text, active: true, warning: true);
+            // Report per device rather than as one lump. IsStoreReady is true when
+            // *either* key exists, so saying "已找到摄像头和麦克风的授权记录" on a
+            // machine that has only ever used a microphone would be a lie the user
+            // has no way to check.
+            var armed = Services.PrivacyMonitor.ArmedDevices;
+            var monitored = DescribeMonitoredDevices();
+
+            var armedNames = armed
+                .Select(d => d == PrivacyDevice.Camera ? "摄像头" : "麦克风")
+                .ToList();
+
+            if (armed.Count > 0)
+            {
+                StoreStateText.Text =
+                    $"已找到{string.Join("和", armedNames)}的授权记录，可以实时收到变化通知。" +
+                    (armed.Count < DescribeMonitoredDeviceCount()
+                        ? $"（{monitored}中尚未出现记录的设备会被持续重试）"
+                        : string.Empty);
+                StoreBadgeText.Text = "已就绪";
+                SetBadge(StoreBadge, StoreBadgeText, StoreBadgeText.Text, active: true);
+            }
+            else
+            {
+                StoreStateText.Text = "监控正在运行，但系统中还没有找到对应的授权记录。";
+                StoreBadgeText.Text = "等待中";
+                SetBadge(StoreBadge, StoreBadgeText, StoreBadgeText.Text, active: true, warning: true);
+            }
         }
 
         // Only explain the missing key when it is actually missing: this is the single

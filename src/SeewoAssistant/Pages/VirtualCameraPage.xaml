@@ -49,7 +49,8 @@
                                Text="首次使用需要把媒体源组件注册到系统，然后创建摄像头实例。注册需要管理员权限；创建实例不需要。" />
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="InstallButton" Click="OnInstall" Style="{StaticResource AccentButtonStyle}">
+                        <Button x:Name="InstallButton" Click="OnInstall" Style="{StaticResource AccentButtonStyle}"
+                            AutomationProperties.Name="一键安装（注册 + 创建）">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE896;" FontSize="14" />
                                 <TextBlock Text="一键安装（注册 + 创建）" />
