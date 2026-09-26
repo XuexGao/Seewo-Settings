@@ -276,13 +276,38 @@ dotnet publish src/SeewoAssistant/SeewoAssistant.csproj -c Release -r win-x64 `
 
 ### GitHub Actions
 
-`.github/workflows/build.yml` 在每次 push 和 PR 时：
+CI 分两个 job。第一个负责构建，第二个负责**真正运行应用**——因为能编译只说明类型正确，
+不说明程序能启动。可编译但一打开就崩的应用是真实存在的失败模式，只有跑起来才能发现。
 
-1. 编译全部 5 个原生项目（x64 与 Win32）
-2. 构建托管项目并运行单元测试
-3. `dotnet publish` 出自包含单文件 exe（win-x64 与 win-arm64）
-4. 组装成 `SeewoAssistant.exe` + `SeewoVirtualCamera.Setup.exe` + `native/x64` + `native/x86` + `scripts` 的目录结构
-5. 打包为 zip 并作为 artifact 上传
+**job 1：构建**
+
+1. 校验所有项目文件是合法 XML 且不含控制字符（MSBuild 对这类问题的报错极难定位）
+2. 编译全部 6 个原生项目（x64 与 Win32），无警告
+3. 构建托管项目并运行 43 个单元测试
+4. `dotnet publish` 出自包含单文件 exe
+5. 断言发行包中每个预期文件都存在，组装成
+   `SeewoAssistant.exe` + `SeewoVirtualCamera.Setup.exe` + `native/x64` + `native/x86` + `scripts`
+6. 打包为 zip 并上传 artifact
+
+**job 2：UI 冒烟测试**
+
+用 UI Automation 启动发布的 exe，遍历全部 7 个页面并逐一截图，点击「运行自检」和
+「刷新窗口列表」，然后检查应用日志中是否有 ERROR。截图、日志和结论清单会作为 artifact 上传
+——**失败时也上传**，因为那正是最需要它们的时候。
+
+截图用 `BitBlt` 抓取合成后的桌面，而不是 `PrintWindow`：WinUI 3 通过 DirectComposition
+合成，`PrintWindow` 对它经常返回全黑位图。
+
+另外还断言了两件事：安装工具的输出必须是合法 UTF-8（防乱码回归），以及媒体源 COM 注册必须
+指向正确且存在的 DLL、`ThreadingModel` 为 `Both`。
+
+**关于虚拟摄像头的验证边界：** CI 虚拟机没有视频栈，摄像头可以被注册和枚举，但无法激活。
+`capture` 命令会区分「环境限制」（退出码 7）和「已激活但没有有效画面」（退出码 8/9），
+并如实说明是哪一种。真实画面需要在**有摄像头的 Windows 机器**上运行：
+
+```powershell
+SeewoVirtualCamera.Setup.exe capture --frames 60 --out frame.png
+```
 
 推送 `v*` 标签时会额外创建 GitHub Release 并附上这些压缩包。
 
@@ -358,6 +383,13 @@ Seewo-Settings/
 7. **注入仅支持同位数进程。** 64 位程序无法向 32 位进程注入 DLL，反之亦然；
    程序会提前检测并提示使用对应位数的版本。
 8. **摄像头句柄归因需要管理员权限。** 未提权时监控仍会报告应用路径，只是没有 PID。
+9. **虚拟摄像头的画面内容尚未在真机上验证。** 自动化测试能证明摄像头被注册、被枚举、
+   COM 注册正确，但 CI 机器没有视频设备，无法激活摄像头读取真实画面。
+   请在装有摄像头的 Windows 机器上运行
+   `SeewoVirtualCamera.Setup.exe capture --frames 60 --out frame.png` 确认。
+10. **第三方应用的兼容性尚未实测。** Zoom / Teams / 微信 / OBS 能否选中并使用这个摄像头，
+    需要在真机上逐个确认。
+11. **跨进程注入在真实杀软环境下的表现尚未验证。** 自动化测试无法模拟主动防御行为。
 
 ---
 
