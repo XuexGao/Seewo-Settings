@@ -8,14 +8,22 @@
 
 #include <new>
 
-namespace seewo {
-
 // {A7E4B2C1-5D3F-4A88-9B6E-1C2D3E4F5A60}
+//
+// Defined at global scope, matching the declaration in the header. Placing it
+// inside namespace seewo would create seewo::CLSID_SeewoVirtualCamera and leave
+// the global symbol that dllmain.cpp refers to undefined, which surfaces only at
+// link time as an unresolved external.
+//
+// "extern const" with an initialiser is a definition in C++, so this is the one
+// and only definition; the header's declaration is the matching extern.
 extern const CLSID CLSID_SeewoVirtualCamera = {
     0xA7E4B2C1,
     0x5D3F,
     0x4A88,
     {0x9B, 0x6E, 0x1C, 0x2D, 0x3E, 0x4F, 0x5A, 0x60}};
+
+namespace seewo {
 
 namespace {
 
