@@ -26,6 +26,7 @@
 #include <strsafe.h>
 
 #include <atomic>
+#include <cwchar>
 #include <new>
 #include <string>
 

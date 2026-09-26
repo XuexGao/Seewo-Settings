@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <cwchar>
 #include <memory>
 #include <new>
 
