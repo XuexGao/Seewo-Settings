@@ -27,3 +27,6 @@ packages/
 *.tmp
 Thumbs.db
 desktop.ini
+
+# Native build intermediates that some project files place beside sources
+native/**/obj/

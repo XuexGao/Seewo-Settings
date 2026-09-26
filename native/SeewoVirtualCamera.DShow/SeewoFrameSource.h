@@ -130,14 +130,27 @@ public:
     uint64_t ChannelOpenCount() const { return channelOpenCount_; }
 
 private:
+    // Outcome of one attempt to read the shared channel.
+    enum class ChannelRead {
+        // A new, valid, fresh frame was converted into the destination.
+        Delivered,
+        // The channel is healthy but the producer has not published a new frame
+        // since the last one we took. The existing frame is still valid, so it
+        // is re-converted: a camera must never flicker back to the test pattern
+        // just because the consumer is running faster than the producer.
+        NoNewFrame,
+        // The channel is absent, malformed, stale, or from an incompatible
+        // build. The caller should drop the mapping and re-probe later.
+        Dead,
+    };
+
     // --- Shared-memory channel ------------------------------------------------
     bool TryOpenChannel();
     void CloseChannel();
 
     // Attempts to read a validated, fresh frame out of the mapping and convert it
-    // into the request buffer. Returns false when the channel is absent, stale,
-    // malformed, or mid-write.
-    bool TryReadChannelFrame(const FrameRequest& request);
+    // into the request buffer.
+    ChannelRead TryReadChannelFrame(const FrameRequest& request);
 
     // --- Built-in pattern -----------------------------------------------------
     void EnsurePattern(uint32_t width, uint32_t height);
@@ -178,6 +191,9 @@ private:
     ChannelHandle channel_;
     uint64_t channelOpenCount_ = 0;
     uint64_t lastChannelFrameIndex_ = 0;
+    // Tick count of the last open attempt, so a missing producer is probed at
+    // most once per kChannelReopenIntervalMs instead of once per frame.
+    uint64_t lastOpenAttemptMs_ = 0;
     bool lastFrameFromChannel_ = false;
 
     // Cached test pattern, always BGRA top-down with stride == width * 4.

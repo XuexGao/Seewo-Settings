@@ -52,9 +52,17 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
 
+  <!-- $(SolutionDir) is empty when msbuild is invoked on the .vcxproj directly,
+       which is how CI builds this. Falling back to the grandparent directory
+       yields the repository root in both invocation styles. -->
   <PropertyGroup>
-    <OutDir>$(SolutionDir)artifacts\native\$(Platform)\$(Configuration)\</OutDir>
-    <IntDir>$(SolutionDir)artifacts\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
+    <RepoRoot Condition="'$(SolutionDir)'!='' and '$(SolutionDir)'!='*Undefined*'">$(SolutionDir)</RepoRoot>
+    <RepoRoot Condition="'$(RepoRoot)'==''">$(MSBuildProjectDirectory)\..\..\</RepoRoot>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <OutDir>$(RepoRoot)artifacts\native\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(RepoRoot)artifacts\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
     <TargetName>SeewoCaptureGuard.Payload</TargetName>
   </PropertyGroup>
 

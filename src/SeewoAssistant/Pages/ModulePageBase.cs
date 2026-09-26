@@ -1,0 +1,117 @@
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using SeewoAssistant.Services;
+
+namespace SeewoAssistant.Pages;
+
+/// <summary>
+/// Shared plumbing for every module page: receives the service graph and provides
+/// the status-reporting helper.
+/// </summary>
+/// <remarks>
+/// Pages are constructed by the <c>Frame</c> navigator, which passes the parameter
+/// given to <c>Navigate</c>. Deriving from this base means each page declares its
+/// own layout in XAML and gets the services without repeating the cast.
+/// </remarks>
+public abstract class ModulePageBase : Page
+{
+    /// <summary>The service graph. Never null after <see cref="OnNavigatedTo"/>.</summary>
+    protected AppServices Services { get; private set; } = null!;
+
+    protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+
+        if (e.Parameter is AppServices services)
+        {
+            Services = services;
+            OnServicesReady();
+        }
+    }
+
+    /// <summary>
+    /// Called once the services are available. Pages load their initial state here
+    /// rather than in a constructor, because the constructor runs before navigation
+    /// supplies the parameter.
+    /// </summary>
+    protected virtual void OnServicesReady()
+    {
+    }
+
+    /// <summary>Reports a message to the shell's status bar.</summary>
+    protected void Report(string message, StatusSeverity severity = StatusSeverity.Informational) =>
+        Services.Report(message, severity);
+
+    /// <summary>
+    /// Runs an operation that talks to the OS, reporting success and failure through
+    /// the status bar rather than throwing into the UI.
+    /// </summary>
+    protected async Task RunGuardedAsync(string description, Func<Task> operation)
+    {
+        try
+        {
+            await operation();
+        }
+        catch (Exception ex)
+        {
+            Services.Logger.Error($"{description} failed.", ex);
+            Report($"{description}失败：{ex.Message}", StatusSeverity.Error);
+        }
+    }
+
+    /// <summary>Shows a confirmation dialog and returns whether the user accepted.</summary>
+    protected async Task<bool> ConfirmAsync(string title, string message, string acceptText = "继续", string cancelText = "取消")
+    {
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            PrimaryButtonText = acceptText,
+            CloseButtonText = cancelText,
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+        };
+
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    /// <summary>Shows an informational dialog.</summary>
+    protected async Task ShowDialogAsync(string title, string message)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            CloseButtonText = "关闭",
+            XamlRoot = XamlRoot,
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    /// <summary>Sets the text of a status badge and colours it by state.</summary>
+    protected static void SetBadge(Border badge, TextBlock text, string label, bool active, bool warning = false)
+    {
+        text.Text = label;
+
+        var backgroundKey = active
+            ? (warning ? "SystemFillColorCautionBackgroundBrush" : "SystemFillColorSuccessBackgroundBrush")
+            : "SystemFillColorNeutralBackgroundBrush";
+
+        var foregroundKey = active
+            ? (warning ? "SystemFillColorCautionBrush" : "SystemFillColorSuccessBrush")
+            : "TextFillColorSecondaryBrush";
+
+        if (Application.Current.Resources.TryGetValue(backgroundKey, out var background) &&
+            background is Microsoft.UI.Xaml.Media.Brush backgroundBrush)
+        {
+            badge.Background = backgroundBrush;
+        }
+
+        if (Application.Current.Resources.TryGetValue(foregroundKey, out var foreground) &&
+            foreground is Microsoft.UI.Xaml.Media.Brush foregroundBrush)
+        {
+            text.Foreground = foregroundBrush;
+        }
+    }
+}

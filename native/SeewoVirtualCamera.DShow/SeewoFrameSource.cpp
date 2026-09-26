@@ -180,12 +180,12 @@ bool FrameSource::TryOpenChannel() {
     // Rate limit probes. When the channel has never been opened we still respect
     // the interval, because a filter can be instantiated and asked for frames
     // long before the assistant starts.
-    static thread_local uint64_t lastAttemptMs = 0;
     const uint64_t now = ::GetTickCount64();
-    if (lastAttemptMs != 0 && now - lastAttemptMs < kChannelReopenIntervalMs) {
+    if (lastOpenAttemptMs_ != 0 &&
+        now - lastOpenAttemptMs_ < kChannelReopenIntervalMs) {
         return false;
     }
-    lastAttemptMs = now;
+    lastOpenAttemptMs_ = now;
 
     // Global\ first (a session-0 FrameServer or a service-hosted producer), then
     // the per-session fallback. CreateOrOpenSharedSection never throws; it
@@ -206,14 +206,15 @@ void FrameSource::CloseChannel() {
     channel_.Close();
 }
 
-bool FrameSource::TryReadChannelFrame(const FrameRequest& request) {
+FrameSource::ChannelRead FrameSource::TryReadChannelFrame(
+    const FrameRequest& request) {
     if (!channel_.valid()) {
-        return false;
+        return ChannelRead::Dead;
     }
 
     auto* base = static_cast<uint8_t*>(channel_.view);
     if (base == nullptr) {
-        return false;
+        return ChannelRead::Dead;
     }
 
     for (int attempt = 0; attempt < kMaxTearRetries; ++attempt) {
@@ -226,22 +227,22 @@ bool FrameSource::TryReadChannelFrame(const FrameRequest& request) {
         if (header.magic != kVcamMagic || header.version != kVcamVersion) {
             // Either nothing has published yet (zeroed page) or a producer from
             // an incompatible build owns the section. Refuse to guess.
-            return false;
+            return ChannelRead::Dead;
         }
 
         if (header.sourceState !=
             static_cast<uint32_t>(VcamSourceState::Live)) {
-            return false;
+            return ChannelRead::Dead;
         }
 
         if (header.format !=
             static_cast<uint32_t>(VcamPixelFormat::Bgra32)) {
-            return false;
+            return ChannelRead::Dead;
         }
 
         if (header.width == 0 || header.height == 0 ||
             header.width > kVcamMaxWidth || header.height > kVcamMaxHeight) {
-            return false;
+            return ChannelRead::Dead;
         }
 
         // The producer's stride must at least cover the declared width and must
@@ -249,13 +250,13 @@ bool FrameSource::TryReadChannelFrame(const FrameRequest& request) {
         const uint64_t minimumStride =
             static_cast<uint64_t>(header.width) * kVcamBytesPerPixel;
         if (header.stride < minimumStride) {
-            return false;
+            return ChannelRead::Dead;
         }
 
         const uint64_t requiredBytes =
             static_cast<uint64_t>(header.stride) * header.height;
         if (requiredBytes > kVcamMaxFrameBytes) {
-            return false;
+            return ChannelRead::Dead;
         }
 
         // Staleness: a producer that stopped publishing (crashed, suspended, or
@@ -264,19 +265,18 @@ bool FrameSource::TryReadChannelFrame(const FrameRequest& request) {
         const uint64_t now = ::GetTickCount64();
         if (header.timestampMs == 0 || now < header.timestampMs ||
             now - header.timestampMs > kStaleFrameMs) {
-            return false;
+            return ChannelRead::Dead;
         }
 
-        // Ignore a frame we have already delivered. The producer only bumps the
-        // index on a new frame, so this keeps us from re-sending a still image
-        // when the consumer runs faster than the producer.
-        if (header.frameIndex == lastChannelFrameIndex_ &&
-            lastChannelFrameIndex_ != 0) {
-            return false;
-        }
+        // The producer only bumps the index when it publishes. Re-sending the
+        // frame we already delivered is correct for a live camera: the consumer
+        // runs at its own cadence and must not see the picture flicker back to
+        // the fallback pattern just because the producer is slower.
+        const bool alreadyDelivered =
+            (header.frameIndex == lastChannelFrameIndex_ &&
+             lastChannelFrameIndex_ != 0);
 
-        const uint8_t* payload =
-            base + kVcamPayloadOffset;
+        const uint8_t* payload = base + kVcamPayloadOffset;
         Convert(request, payload, header.stride, header.width, header.height);
 
         // Seqlock check: if the producer replaced the frame while we were
@@ -289,10 +289,11 @@ bool FrameSource::TryReadChannelFrame(const FrameRequest& request) {
         }
 
         lastChannelFrameIndex_ = header.frameIndex;
-        return true;
+        return alreadyDelivered ? ChannelRead::NoNewFrame
+                                : ChannelRead::Delivered;
     }
 
-    return false;
+    return ChannelRead::Dead;
 }
 
 void FrameSource::EnsurePattern(uint32_t width, uint32_t height) {
@@ -502,15 +503,18 @@ bool FrameSource::Produce(FrameRequest& request, uint64_t frameIndex) {
         TryOpenChannel();
     }
 
-    if (channel_.valid() && TryReadChannelFrame(request)) {
-        lastFrameFromChannel_ = true;
-        return true;
-    }
+    if (channel_.valid()) {
+        const ChannelRead read = TryReadChannelFrame(request);
+        if (read == ChannelRead::Delivered || read == ChannelRead::NoNewFrame) {
+            // NoNewFrame still produced a valid picture, so the channel is
+            // considered live either way.
+            lastFrameFromChannel_ = true;
+            return true;
+        }
 
-    // The channel exists but is unusable (stale, malformed, mid-teardown). Drop
-    // the mapping so the next frame re-probes it; keeping a dead section open
-    // would stop a restarted assistant from ever being noticed.
-    if (channel_.valid() && !lastFrameFromChannel_) {
+        // The channel exists but is unusable (stale, malformed, mid-teardown).
+        // Drop the mapping so the next frame re-probes it; keeping a dead
+        // section open would stop a restarted assistant from ever being noticed.
         CloseChannel();
     }
 

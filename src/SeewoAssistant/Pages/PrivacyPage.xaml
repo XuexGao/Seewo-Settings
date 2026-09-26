@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="utf-8"?>
+<local:ModulePageBase
+    x:Class="SeewoAssistant.Pages.PrivacyPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:SeewoAssistant.Pages">
+
+    <ScrollViewer Padding="32,24,32,32">
+        <StackPanel MaxWidth="900" HorizontalAlignment="Left">
+
+            <TextBlock Text="隐私监控" Style="{StaticResource PageTitleStyle}" />
+            <TextBlock Style="{StaticResource PageSubtitleStyle}"
+                       Text="当任何程序开始使用摄像头或麦克风时立刻提醒你。监控基于系统的隐私授权记录，不读取画面也不录音，只观察「谁在用」。" />
+
+            <!-- Live state. The two facts that decide whether anything will be
+                 reported at all are shown before the controls that change them. -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="监控状态" Style="{StaticResource CardTitleStyle}" />
+                            <TextBlock x:Name="MonitorStateText" Style="{StaticResource CardBodyStyle}" />
+                        </StackPanel>
+
+                        <Border x:Name="MonitorBadge" Grid.Column="1" Style="{StaticResource StatusBadgeStyle}">
+                            <TextBlock x:Name="MonitorBadgeText" FontSize="12" />
+                        </Border>
+                    </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="隐私授权记录" FontWeight="SemiBold" />
+                            <TextBlock x:Name="StoreStateText" Style="{StaticResource CardBodyStyle}" />
+                        </StackPanel>
+
+                        <Border x:Name="StoreBadge" Grid.Column="1" Style="{StaticResource StatusBadgeStyle}">
+                            <TextBlock x:Name="StoreBadgeText" FontSize="12" />
+                        </Border>
+                    </Grid>
+
+                    <!-- Only shown when the store is missing, because that is the one
+                         state users mistake for a fault. -->
+                    <InfoBar x:Name="StoreInfoBar"
+                             IsOpen="False"
+                             IsClosable="False"
+                             Severity="Informational" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="StartButton" Click="OnStartMonitor" Style="{StaticResource AccentButtonStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE768;" FontSize="14" />
+                                <TextBlock Text="启动监控" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="StopButton" Click="OnStopMonitor">
+                            <TextBlock Text="停止监控" />
+                        </Button>
+
+                        <Button x:Name="RefreshStateButton" Click="OnRefreshState">
+                            <TextBlock Text="刷新状态" />
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Monitoring scope and alert delivery. -->
+            <TextBlock Text="监控与提醒设置" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="16">
+                    <TextBlock Style="{StaticResource CardBodyStyle}"
+                               Text="修改设置后立即保存并生效。关闭某一类设备后，该类设备的授权记录不再被监视。" />
+
+                    <ToggleSwitch x:Name="MonitorCameraToggle"
+                                  Header="监控摄像头"
+                                  OnContent="已开启"
+                                  OffContent="已关闭"
+                                  Toggled="OnMonitorCameraToggled" />
+
+                    <ToggleSwitch x:Name="MonitorMicrophoneToggle"
+                                  Header="监控麦克风"
+                                  OnContent="已开启"
+                                  OffContent="已关闭"
+                                  Toggled="OnMonitorMicrophoneToggled" />
+
+                    <StackPanel Spacing="4">
+                        <ToggleSwitch x:Name="ResolveProcessIdsToggle"
+                                      Header="尝试解析进程 ID（需要管理员权限）"
+                                      OnContent="已开启"
+                                      OffContent="已关闭"
+                                      Toggled="OnResolveProcessIdsToggled" />
+                        <TextBlock Style="{StaticResource CardBodyStyle}"
+                                   Text="开启后会扫描系统句柄来找出正在使用设备的进程号，必须由管理员身份运行才能成功；权限不足时提醒仍然会发出，只是不显示进程 ID。" />
+                    </StackPanel>
+
+                    <MenuFlyoutSeparator />
+
+                    <ToggleSwitch x:Name="ShowToastToggle"
+                                  Header="弹出系统通知"
+                                  OnContent="已开启"
+                                  OffContent="已关闭"
+                                  Toggled="OnShowToastToggled" />
+
+                    <StackPanel Spacing="4">
+                        <ToggleSwitch x:Name="ShowBannerToggle"
+                                      Header="显示屏幕横幅"
+                                      OnContent="已开启"
+                                      OffContent="已关闭"
+                                      Toggled="OnShowBannerToggled" />
+                        <TextBlock Style="{StaticResource CardBodyStyle}"
+                                   Text="系统通知可能被「专注助手」或「请勿打扰」静默拦截，横幅由本程序自己绘制，不会被拦截。摄像头和麦克风提醒正是不能漏掉的一类消息，所以建议开启。" />
+                    </StackPanel>
+
+                    <ToggleSwitch x:Name="PlaySoundToggle"
+                                  Header="播放提示音"
+                                  OnContent="已开启"
+                                  OffContent="已关闭"
+                                  Toggled="OnPlaySoundToggled" />
+
+                    <NumberBox x:Name="BannerSecondsBox"
+                               Header="横幅停留时间（秒）"
+                               Minimum="2"
+                               Maximum="60"
+                               SmallChange="1"
+                               SpinButtonPlacementMode="Compact"
+                               ValueChanged="OnBannerSecondsChanged" />
+
+                    <MenuFlyoutSeparator />
+
+                    <ToggleSwitch x:Name="AutoStartToggle"
+                                  Header="随程序启动自动开启监控"
+                                  OnContent="已开启"
+                                  OffContent="已关闭"
+                                  Toggled="OnAutoStartToggled" />
+                </StackPanel>
+            </Border>
+
+            <!-- Exclusion list. -->
+            <TextBlock Text="排除名单" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Style="{StaticResource CardBodyStyle}"
+                               Text="名单里的程序使用摄像头或麦克风时不会提醒。可以填可执行文件名（如 Teams.exe），也可以填完整路径；比较时不区分大小写。" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBox x:Name="ExclusionTextBox"
+                                 Width="360"
+                                 PlaceholderText="程序名或完整路径，例如 Teams.exe" />
+
+                        <Button x:Name="AddExclusionButton" Click="OnAddExclusion">
+                            <TextBlock Text="添加" />
+                        </Button>
+                    </StackPanel>
+
+                    <TextBlock x:Name="ExclusionEmptyText"
+                               Style="{StaticResource CardBodyStyle}"
+                               Text="名单为空，所有程序的使用都会提醒。" />
+
+                    <ListView x:Name="ExclusionList"
+                              MaxHeight="240"
+                              SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnSpacing="8" Padding="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding}"
+                                               TextWrapping="Wrap"
+                                               VerticalAlignment="Center" />
+
+                                    <Button Grid.Column="1"
+                                            Click="OnRemoveExclusion"
+                                            Tag="{Binding}"
+                                            Content="移除" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </Border>
+
+            <!-- Live activity. -->
+            <TextBlock Text="实时活动记录" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="最近的设备使用事件（最多显示 200 条）" Style="{StaticResource CardTitleStyle}" />
+                            <TextBlock x:Name="ActivityCountText" Style="{StaticResource CardBodyStyle}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="TestAlertButton" Click="OnTestAlert" Content="测试提醒" />
+                            <Button x:Name="ClearActivityButton" Click="OnClearActivity" Content="清空记录" />
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock x:Name="ActivityEmptyText"
+                               Style="{StaticResource CardBodyStyle}"
+                               Text="还没有记录。启动监控后，一旦有程序使用摄像头或麦克风，事件会实时出现在这里。" />
+
+                    <ListView x:Name="ActivityList"
+                              MaxHeight="420"
+                              SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="local:PrivacyActivityRow">
+                                <Grid ColumnSpacing="12" Padding="0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Border Grid.Column="0"
+                                            Style="{StaticResource StatusBadgeStyle}"
+                                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                        <TextBlock Text="{x:Bind DeviceLabel}" FontSize="12" />
+                                    </Border>
+
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="{x:Bind ApplicationLabel}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                        <TextBlock Text="{x:Bind ProcessLabel}"
+                                                   Style="{StaticResource CardBodyStyle}"
+                                                   FontSize="12"
+                                                   Visibility="{x:Bind ProcessVisibility}" />
+                                        <TextBlock Text="{x:Bind DetailLabel}"
+                                                   Style="{StaticResource CardBodyStyle}"
+                                                   FontSize="12" />
+                                    </StackPanel>
+
+                                    <TextBlock Grid.Column="2"
+                                               Text="{x:Bind TimeLabel}"
+                                               Style="{StaticResource MonospaceStyle}"
+                                               FontSize="12"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</local:ModulePageBase>

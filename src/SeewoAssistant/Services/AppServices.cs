@@ -49,6 +49,7 @@ public sealed class AppServices : IAsyncDisposable
         SeewoControl = new SeewoControlService(logger: _logger);
         Firewall = new FirewallService(_logger);
         StartupManager = new StartupManagerService(_logger);
+        AppStartup = new AppStartupService(_logger);
         Power = new PowerService(_logger);
 
         ActionExecutor = new ActionExecutor(
@@ -81,6 +82,9 @@ public sealed class AppServices : IAsyncDisposable
     public FirewallService Firewall { get; }
 
     public StartupManagerService StartupManager { get; }
+
+    /// <summary>Registers this app in the per-user Run key.</summary>
+    public AppStartupService AppStartup { get; }
 
     public PowerService Power { get; }
 

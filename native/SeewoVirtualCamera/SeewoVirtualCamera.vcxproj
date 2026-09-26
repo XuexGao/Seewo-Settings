@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SeewoVirtualCamera.vcxproj
+
+  Native C++17 Windows Media Foundation virtual camera media source.
+
+  Build:
+      msbuild SeewoVirtualCamera.vcxproj /p:Configuration=Release /p:Platform=x64
+
+  This project intentionally:
+    * uses only the Windows SDK (WRL + Media Foundation) - no C++/WinRT, no WIL,
+      no NuGet, no vcpkg;
+    * does NOT reference MFCreateVirtualCamera and does NOT link
+      mfsensorgroup.lib.  Creating/registering the camera frame server entry is
+      the job of the separate registration tool.  Because of that this DLL loads
+      on Windows 10 as well as Windows 11.
+-->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{2E7C41D9-8F3B-4C0A-A1D6-5B7E9F2C4A83}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>SeewoVirtualCamera</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <!--
+    Configuration type and toolset.  DynamicLibrary / v143 as required.
+  -->
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
+            Label="LocalAppDataPlatform" />
+  </ImportGroup>
+
+  <!--
+    Output goes to <repo root>\artifacts\native\<platform>\<configuration>.
+    SolutionDir is used when building through the .sln, but MSBuild leaves it
+    empty or set to *Undefined* when a .vcxproj is built directly, which is how
+    CI invokes it. Falling back to this project's grandparent directory gives the
+    repository root in both cases, so the output layout is identical either way.
+  -->
+  <PropertyGroup>
+    <RepoRoot Condition="'$(SolutionDir)'!='' and '$(SolutionDir)'!='*Undefined*'">$(SolutionDir)</RepoRoot>
+    <RepoRoot Condition="'$(RepoRoot)'==''">$(MSBuildProjectDirectory)\..\..\</RepoRoot>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <OutDir>$(RepoRoot)artifacts\native\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(RepoRoot)artifacts\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>SeewoVirtualCamera</TargetName>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <ConformanceMode>true</ConformanceMode>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SeewoCommon;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!--
+        WIN32_LEAN_AND_MEAN / NOMINMAX come from SeewoCommon\pch.h, but define
+        them here as well so every translation unit gets a consistent view even
+        before the shared header is reached.
+      -->
+      <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;NOMINMAX;UNICODE;_UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <SDLCheck>true</SDLCheck>
+      <SupportJustMyCode>false</SupportJustMyCode>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <ModuleDefinitionFile>SeewoVirtualCamera.def</ModuleDefinitionFile>
+      <AdditionalDependencies>mfplat.lib;mf.lib;mfuuid.lib;ole32.lib;oleaut32.lib;uuid.lib;advapi32.lib;windowscodecs.lib;ksguid.lib;OneCoreUAP.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <!--
+        No delay loading and no /DELAYLOAD: the DLL must load cleanly inside the
+        FrameServer process, which already has every Media Foundation module
+        resident.
+      -->
+      <DelayLoadDLLs />
+      <AdditionalOptions>/ignore:4199 %(AdditionalOptions)</AdditionalOptions>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <LinkIncremental>true</LinkIncremental>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <LinkIncremental>false</LinkIncremental>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="SeewoVirtualCameraActivate.cpp" />
+    <ClCompile Include="SeewoMediaSource.cpp" />
+    <ClCompile Include="SeewoMediaStream.cpp" />
+    <ClCompile Include="SeewoFrameSource.cpp" />
+    <!-- The shared IPC helpers live in SeewoCommon and are compiled in here. -->
+    <ClCompile Include="..\SeewoCommon\SeewoIpc.cpp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ClInclude Include="SeewoVirtualCameraActivate.h" />
+    <ClInclude Include="SeewoMediaSource.h" />
+    <ClInclude Include="SeewoMediaStream.h" />
+    <ClInclude Include="SeewoFrameSource.h" />
+    <ClInclude Include="..\SeewoCommon\SeewoIpc.h" />
+    <ClInclude Include="..\SeewoCommon\pch.h" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="SeewoVirtualCamera.def" />
+    <None Include="README.md" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

@@ -345,17 +345,16 @@ IFACEMETHODIMP SeewoVirtualCameraActivateFactory::LockServer(BOOL fLock) {
   // The factory object itself is kept alive by COM for as long as the class
   // object is registered, so a counter is all that is required.  The counter is
   // reflected into the module object count so that DllCanUnloadNow() respects a
-  // locked server.
+  // locked server.  An unmatched unlock is tolerated rather than failed: COM is
+  // allowed to call LockServer(FALSE) defensively, and failing it would make the
+  // frame server treat the class object as broken.
   if (fLock) {
     ::InterlockedIncrement(&lockCount_);
     AddModuleObject();
+  } else if (::InterlockedDecrement(&lockCount_) >= 0) {
+    ReleaseModuleObject();
   } else {
-    if (::InterlockedDecrement(&lockCount_) >= 0) {
-      ReleaseModuleObject();
-    } else {
-      ::InterlockedIncrement(&lockCount_);
-      return E_UNEXPECTED;
-    }
+    ::InterlockedIncrement(&lockCount_);  // restore the clamped-at-zero value
   }
   return S_OK;
 }

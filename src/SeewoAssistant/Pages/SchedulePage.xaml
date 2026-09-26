@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="utf-8"?>
+<local:ModulePageBase
+    x:Class="SeewoAssistant.Pages.SchedulePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:SeewoAssistant.Pages">
+
+    <ScrollViewer Padding="32,24,32,32">
+        <StackPanel MaxWidth="980" HorizontalAlignment="Left">
+
+            <TextBlock Text="定时任务" Style="{StaticResource PageTitleStyle}" />
+            <TextBlock Style="{StaticResource PageSubtitleStyle}"
+                       Text="把虚拟摄像头、隐私监控、防截屏、希沃管控和电源操作自由组合成定时序列。" />
+
+            <!-- Behaviour that the user must understand before relying on the feature. -->
+            <InfoBar IsOpen="True" IsClosable="False" Severity="Informational"
+                     Title="调度行为说明"
+                     Message="任务由本程序内的调度器触发，因此程序必须正在运行。错过的触发不会补跑：如果机器在 08:00 处于睡眠、09:00 才唤醒，08:00 那次不会延迟执行，只有下一个计划时刻会触发。上一个实例还在运行时，下一次触发会被跳过。" />
+
+            <!-- ============================== task list ============================== -->
+            <TextBlock Text="任务列表" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="NewTaskButton" Click="OnNewTask" Style="{StaticResource AccentButtonStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE710;" FontSize="14" />
+                                <TextBlock Text="新建任务" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="RefreshTasksButton" Click="OnRefreshTasks" Content="刷新" />
+                    </StackPanel>
+
+                    <ListView x:Name="TaskList" MaxHeight="340" SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="4,8" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <ToggleSwitch Grid.Column="0"
+                                                  IsOn="{Binding Enabled, Mode=TwoWay}"
+                                                  OnContent=""
+                                                  OffContent=""
+                                                  MinWidth="0"
+                                                  Toggled="OnTaskToggled" />
+
+                                    <StackPanel Grid.Column="1" Spacing="3">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                            <Border Style="{StaticResource StatusBadgeStyle}"
+                                                    Background="{ThemeResource SystemFillColorNeutralBackgroundBrush}">
+                                                <TextBlock Text="{Binding Cron}" FontSize="11" FontFamily="Consolas, Cascadia Mono" />
+                                            </Border>
+                                        </StackPanel>
+
+                                        <TextBlock Text="{Binding Description}"
+                                                   FontSize="12"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                                        <TextBlock FontSize="11"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}">
+                                            <Run Text="{Binding NextRunLabel}" />
+                                            <Run Text=" · " />
+                                            <Run Text="{Binding LastRunLabel}" />
+                                            <Run Text=" · " />
+                                            <Run Text="{Binding ActionSummary}" />
+                                        </TextBlock>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+                                        <Button Click="OnRunTaskNow"
+                                                Tag="{Binding}"
+                                                ToolTipService.ToolTip="立即执行一次"
+                                                Background="Transparent"
+                                                BorderThickness="0">
+                                            <FontIcon Glyph="&#xE768;" FontSize="14" />
+                                        </Button>
+
+                                        <Button Click="OnEditTask"
+                                                Tag="{Binding}"
+                                                ToolTipService.ToolTip="编辑"
+                                                Background="Transparent"
+                                                BorderThickness="0">
+                                            <FontIcon Glyph="&#xE70F;" FontSize="14" />
+                                        </Button>
+
+                                        <Button Click="OnDuplicateTask"
+                                                Tag="{Binding}"
+                                                ToolTipService.ToolTip="复制"
+                                                Background="Transparent"
+                                                BorderThickness="0">
+                                            <FontIcon Glyph="&#xE8C8;" FontSize="14" />
+                                        </Button>
+
+                                        <Button Click="OnDeleteTask"
+                                                Tag="{Binding}"
+                                                ToolTipService.ToolTip="删除"
+                                                Background="Transparent"
+                                                BorderThickness="0">
+                                            <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <TextBlock x:Name="NoTasksText"
+                               Style="{StaticResource CardBodyStyle}"
+                               Text="还没有定时任务。点「新建任务」开始。" />
+                </StackPanel>
+            </Border>
+
+            <!-- ============================== editor ============================== -->
+            <TextBlock x:Name="EditorHeader" Text="新建任务" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border x:Name="EditorCard" Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="16">
+
+                    <TextBox x:Name="TaskNameBox" Header="任务名称" PlaceholderText="例如 工作日上班准备" />
+
+                    <!-- Cron with live validation. This is the most important control
+                         on the page: a wrong expression silently never fires. -->
+                    <StackPanel Spacing="8">
+                        <TextBox x:Name="CronBox"
+                                 Header="定时表达式（分 时 日 月 周）"
+                                 PlaceholderText="0 8 * * 1-5"
+                                 Text="0 8 * * *"
+                                 FontFamily="Consolas, Cascadia Mono"
+                                 TextChanged="OnCronChanged" />
+
+                        <InfoBar x:Name="CronInfoBar" IsOpen="False" IsClosable="False" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="快速填入：" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Button Click="OnQuickCron" Tag="0 8 * * *" Content="每天 08:00" />
+                            <Button Click="OnQuickCron" Tag="30 17 * * *" Content="每天 17:30" />
+                            <Button Click="OnQuickCron" Tag="0 9 * * 1-5" Content="工作日 09:00" />
+                            <Button Click="OnQuickCron" Tag="0 * * * *" Content="每小时" />
+                            <Button Click="OnQuickCron" Tag="0 8 * * 1" Content="每周一 08:00" />
+                            <Button Click="OnQuickCron" Tag="0 0 1 * *" Content="每月 1 日" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <MenuFlyoutSeparator />
+
+                    <!-- Action sequence -->
+                    <StackPanel Spacing="8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock Text="动作序列" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource CardBodyStyle}"
+                                           Text="按顺序执行。可以给每一步设置延迟和失败处理。" />
+                            </StackPanel>
+
+                            <Button Grid.Column="1" x:Name="AddActionButton" Click="OnAddAction">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE710;" FontSize="14" />
+                                    <TextBlock Text="添加动作" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <!-- The action cards are built in code-behind rather than from a
+                             DataTemplate: each action kind needs a different set of
+                             parameter fields, and a template cannot vary its content
+                             per item without a selector for every kind. -->
+                        <StackPanel x:Name="ActionList" Spacing="8" />
+
+                        <TextBlock x:Name="NoActionsText"
+                                   Style="{StaticResource CardBodyStyle}"
+                                   Text="还没有动作。点「添加动作」加入第一步。" />
+                    </StackPanel>
+
+                    <MenuFlyoutSeparator />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="SaveTaskButton" Click="OnSaveTask" Style="{StaticResource AccentButtonStyle}">
+                            <TextBlock Text="保存任务" />
+                        </Button>
+
+                        <Button x:Name="CancelEditButton" Click="OnCancelEdit">
+                            <TextBlock Text="取消" />
+                        </Button>
+                    </StackPanel>
+
+                    <InfoBar IsOpen="True" IsClosable="False" Severity="Informational"
+                             Title="关于「写入 Windows 任务计划程序」"
+                             Message="任务目前只在希沃助手运行时触发。把任务注册到 Windows 任务计划程序可以让它在程序关闭时也执行，但本版本尚未实现该功能，因此界面上没有提供这个开关，以免造成误解。" />
+                </StackPanel>
+            </Border>
+
+            <!-- ============================== power ============================== -->
+            <TextBlock Text="系统电源" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="16">
+                    <TextBlock Style="{StaticResource CardBodyStyle}"
+                               Text="关机与重启会先显示系统倒计时提示，期间可以取消。这些操作需要管理员权限。" />
+
+                    <Grid ColumnSpacing="16" RowSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <NumberBox Grid.Column="0"
+                                   x:Name="CountdownBox"
+                                   Header="倒计时（秒）"
+                                   Minimum="0"
+                                   Maximum="600"
+                                   Value="60"
+                                   SpinButtonPlacementMode="Compact"
+                                   Width="170" />
+
+                        <TextBox Grid.Column="1"
+                                 x:Name="ShutdownMessageBox"
+                                 Header="关机提示语"
+                                 PlaceholderText="SeewoAssistant 计划任务正在关机。"
+                                 Text="SeewoAssistant 计划任务正在关机。" />
+                    </Grid>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="ShutdownButton" Click="OnShutdown">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE7E8;" FontSize="14" />
+                                <TextBlock Text="关机" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="RestartButton" Click="OnRestart">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE777;" FontSize="14" />
+                                <TextBlock Text="重启" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="LogoffButton" Click="OnLogoff" Content="注销" />
+
+                        <Button x:Name="LockButton" Click="OnLock" Content="锁定工作站" />
+
+                        <Button x:Name="AbortShutdownButton" Click="OnAbortShutdown">
+                            <TextBlock Text="取消待执行的关机" />
+                        </Button>
+                    </StackPanel>
+
+                    <!-- Honest treatment of scheduled power-on. -->
+                    <InfoBar IsOpen="True" IsClosable="False" Severity="Warning"
+                             Title="为什么没有「定时开机」"
+                             Message="处于完全关机（S5）状态的电脑上没有操作系统在运行，任何软件都无法唤醒它。唯二可靠的途径是固件的 RTC 定时唤醒和 Wake-on-LAN，两者都在 Windows 之外配置：开机时按 Del / F2 / F10 进入 BIOS/UEFI，在「Power Management」或「Advanced」里找到「RTC Alarm」「Wake Up Event」或「Resume by RTC Alarm」并设定时间；Wake-on-LAN 还需要在网卡的高级属性里启用「Wake on Magic Packet」，并在 BIOS 中允许网络唤醒。与其提供一个不可靠的按钮，这里如实说明。" />
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</local:ModulePageBase>

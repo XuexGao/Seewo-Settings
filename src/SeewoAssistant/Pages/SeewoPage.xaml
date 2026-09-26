@@ -1,0 +1,388 @@
+<?xml version="1.0" encoding="utf-8"?>
+<local:ModulePageBase
+    x:Class="SeewoAssistant.Pages.SeewoPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:SeewoAssistant.Pages">
+
+    <ScrollViewer Padding="32,24,32,32">
+        <StackPanel MaxWidth="980" HorizontalAlignment="Left">
+
+            <TextBlock Text="希沃软件" Style="{StaticResource PageTitleStyle}" />
+            <TextBlock Style="{StaticResource PageSubtitleStyle}"
+                       Text="扫描本机安装的希沃软件，挂起或结束它们的进程，阻断其联网，并管理开机自启项。" />
+
+            <!-- Permissions. Half of this page needs elevation, so the state is shown
+                 up front rather than discovered through a series of failures. -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="10">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="权限状态" Style="{StaticResource CardTitleStyle}" />
+                            <TextBlock x:Name="PermissionText" Style="{StaticResource CardBodyStyle}" />
+                        </StackPanel>
+
+                        <Border x:Name="PermissionBadge" Grid.Column="1" Style="{StaticResource StatusBadgeStyle}">
+                            <TextBlock x:Name="PermissionBadgeText" FontSize="12" />
+                        </Border>
+                    </Grid>
+
+                    <InfoBar x:Name="PermissionInfoBar" IsOpen="False" IsClosable="False" />
+                </StackPanel>
+            </Border>
+
+            <!-- ============================ discovery ============================ -->
+            <TextBlock Text="扫描本机希沃软件" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Style="{StaticResource CardBodyStyle}"
+                               Text="不猜测进程名，而是扫描 Program Files、Program Files (x86)、ProgramData 和 %LOCALAPPDATA%，按 seewo / easinote / 希沃 / swproxy / swupdate 等关键字匹配目录名、文件名和文件描述，只列出实际存在的程序。" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="ScanButton" Click="OnScan" Style="{StaticResource AccentButtonStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE721;" FontSize="14" />
+                                <TextBlock Text="开始扫描" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="AddSelectedButton" Click="OnAddSelectedRules" IsEnabled="False">
+                            <TextBlock Text="把勾选项保存为规则" />
+                        </Button>
+
+                        <Button x:Name="SelectAllButton" Click="OnSelectAllDiscovered" IsEnabled="False">
+                            <TextBlock Text="全选" />
+                        </Button>
+                    </StackPanel>
+
+                    <ProgressRing x:Name="ScanProgress" IsActive="False" Width="20" Height="20" HorizontalAlignment="Left" />
+
+                    <TextBlock x:Name="ScanSummaryText" Style="{StaticResource CardBodyStyle}" Visibility="Collapsed" />
+
+                    <ListView x:Name="DiscoveredList"
+                              MaxHeight="280"
+                              SelectionMode="None"
+                              Visibility="Collapsed">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="4,6" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <CheckBox Grid.Column="0"
+                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                              MinWidth="0" />
+
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Pattern}"
+                                                   FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Text="{Binding Notes}"
+                                                   FontSize="12"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                    </StackPanel>
+
+                                    <Border Grid.Column="2"
+                                            Style="{StaticResource StatusBadgeStyle}"
+                                            Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}">
+                                        <TextBlock Text="{Binding ConfidenceLabel}" FontSize="11" />
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </Border>
+
+            <!-- ============================== rules ============================== -->
+            <TextBlock Text="匹配规则" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Style="{StaticResource CardBodyStyle}"
+                               Text="规则决定「哪些程序算希沃软件」。可以按进程名、完整路径前缀或数字签名匹配。" />
+
+                    <ListView x:Name="RulesList" MaxHeight="240" SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="4,6" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <ToggleSwitch Grid.Column="0"
+                                                  IsOn="{Binding Enabled, Mode=TwoWay}"
+                                                  OnContent=""
+                                                  OffContent=""
+                                                  MinWidth="0"
+                                                  Toggled="OnRuleToggled" />
+
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                        <TextBlock FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                                            <Run Text="{Binding MatchKindLabel}" />
+                                            <Run Text=" · " />
+                                            <Run Text="{Binding Pattern}" />
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding Notes}"
+                                                   FontSize="12"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                    </StackPanel>
+
+                                    <Button Grid.Column="2"
+                                            Click="OnDeleteRule"
+                                            Tag="{Binding}"
+                                            ToolTipService.ToolTip="删除该规则"
+                                            Background="Transparent"
+                                            BorderThickness="0">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                                    </Button>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <TextBlock x:Name="NoRulesText"
+                               Style="{StaticResource CardBodyStyle}"
+                               Text="还没有规则。先扫描本机希沃软件，或手动添加一条。" />
+
+                    <MenuFlyoutSeparator />
+
+                    <TextBlock Text="手动添加规则" FontWeight="SemiBold" />
+
+                    <Grid ColumnSpacing="12" RowSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBox Grid.Column="0" x:Name="NewRuleNameBox" Header="规则名称" PlaceholderText="例如 希沃白板" />
+                        <ComboBox Grid.Column="1" x:Name="NewRuleKindCombo" Header="匹配方式" Width="150" VerticalAlignment="Bottom" />
+                        <TextBox Grid.Column="2" x:Name="NewRulePatternBox" Header="匹配内容" PlaceholderText="例如 EasiNote.exe" />
+                        <Button Grid.Column="3" x:Name="AddRuleButton" Click="OnAddRule" VerticalAlignment="Bottom">
+                            <TextBlock Text="添加" />
+                        </Button>
+                    </Grid>
+
+                    <ToggleSwitch x:Name="NewRuleAutoApplyToggle"
+                                  Header="自动应用"
+                                  OnContent="匹配到就自动处理"
+                                  OffContent="仅手动处理" />
+                </StackPanel>
+            </Border>
+
+            <!-- ============================ processes ============================ -->
+            <TextBlock Text="运行中的进程" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="RefreshProcessesButton" Click="OnRefreshProcesses">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                                <TextBlock Text="刷新" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="SuspendSelectedButton" Click="OnSuspendSelected" IsEnabled="False">
+                            <TextBlock Text="挂起选中" />
+                        </Button>
+
+                        <Button x:Name="ResumeSelectedButton" Click="OnResumeSelected" IsEnabled="False">
+                            <TextBlock Text="恢复选中" />
+                        </Button>
+
+                        <Button x:Name="KillSelectedButton" Click="OnKillSelected" IsEnabled="False">
+                            <TextBlock Text="结束选中" />
+                        </Button>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="SuspendAllButton" Click="OnSuspendAll">
+                            <TextBlock Text="全部挂起" />
+                        </Button>
+
+                        <Button x:Name="ResumeAllButton" Click="OnResumeAll">
+                            <TextBlock Text="全部恢复" />
+                        </Button>
+
+                        <Button x:Name="KillAllButton" Click="OnKillAll">
+                            <TextBlock Text="全部结束" />
+                        </Button>
+                    </StackPanel>
+
+                    <ProgressRing x:Name="ProcessProgress" IsActive="False" Width="20" Height="20" HorizontalAlignment="Left" />
+
+                    <ListView x:Name="ProcessList"
+                              MaxHeight="300"
+                              SelectionMode="Extended"
+                              SelectionChanged="OnProcessSelectionChanged">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="4,6" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0" Spacing="2">
+                                        <TextBlock Text="{Binding ProcessName}" FontWeight="SemiBold" />
+                                        <TextBlock FontSize="12"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                                            <Run Text="PID " />
+                                            <Run Text="{Binding ProcessId}" />
+                                            <Run Text=" · " />
+                                            <Run Text="{Binding Description}" />
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding Path}"
+                                                   FontSize="11"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                    </StackPanel>
+
+                                    <Border Grid.Column="1"
+                                            Style="{StaticResource StatusBadgeStyle}"
+                                            Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}">
+                                        <TextBlock Text="{Binding StateLabel}" FontSize="11" />
+                                    </Border>
+
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+                                        <Button Click="OnBlockNetwork"
+                                                Tag="{Binding}"
+                                                ToolTipService.ToolTip="禁止该程序联网"
+                                                Background="Transparent"
+                                                BorderThickness="0">
+                                            <FontIcon Glyph="&#xE72E;" FontSize="14" />
+                                        </Button>
+
+                                        <Button Click="OnUnblockNetwork"
+                                                Tag="{Binding}"
+                                                ToolTipService.ToolTip="恢复该程序联网"
+                                                Background="Transparent"
+                                                BorderThickness="0">
+                                            <FontIcon Glyph="&#xE8BB;" FontSize="14" />
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <TextBlock x:Name="NoProcessesText"
+                               Style="{StaticResource CardBodyStyle}"
+                               Text="还没有扫描运行中的进程。" />
+                </StackPanel>
+            </Border>
+
+            <!-- ============================ firewall ============================ -->
+            <TextBlock Text="防火墙规则" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Style="{StaticResource CardBodyStyle}"
+                               Text="「禁止联网」会为该程序创建入站和出站两条阻断规则，覆盖域、专用和公用三种网络配置文件。规则名称带 SeewoAssistant Block 前缀，便于精确识别和移除。" />
+
+                    <Button x:Name="RemoveAllFirewallButton" Click="OnRemoveAllFirewallRules">
+                        <TextBlock Text="移除本程序创建的所有防火墙规则" />
+                    </Button>
+                </StackPanel>
+            </Border>
+
+            <!-- ============================ startup ============================ -->
+            <TextBlock Text="开机自启项" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Style="{StaticResource CardBodyStyle}"
+                               Text="覆盖全部四种真实的自启机制：计划任务、注册表 Run 键、启动文件夹快捷方式、自动启动服务。禁用注册表项时是改名保留而不是删除，随时可以完整还原。" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="ScanStartupButton" Click="OnScanStartup" Style="{StaticResource AccentButtonStyle}">
+                            <TextBlock Text="扫描开机自启项" />
+                        </Button>
+
+                        <Button x:Name="DisableAllStartupButton" Click="OnDisableAllStartup">
+                            <TextBlock Text="全部禁用希沃自启" />
+                        </Button>
+
+                        <Button x:Name="EnableAllStartupButton" Click="OnEnableAllStartup">
+                            <TextBlock Text="全部恢复" />
+                        </Button>
+                    </StackPanel>
+
+                    <ProgressRing x:Name="StartupProgress" IsActive="False" Width="20" Height="20" HorizontalAlignment="Left" />
+
+                    <ListView x:Name="StartupList" MaxHeight="320" SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="4,6" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <ToggleSwitch Grid.Column="0"
+                                                  IsOn="{Binding Enabled, Mode=TwoWay}"
+                                                  IsEnabled="{Binding CanToggle}"
+                                                  OnContent=""
+                                                  OffContent=""
+                                                  MinWidth="0"
+                                                  Toggled="OnStartupToggled" />
+
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                            <Border Style="{StaticResource StatusBadgeStyle}"
+                                                    Background="{ThemeResource SystemFillColorNeutralBackgroundBrush}">
+                                                <TextBlock Text="{Binding KindLabel}" FontSize="11" />
+                                            </Border>
+                                        </StackPanel>
+
+                                        <TextBlock Text="{Binding Location}"
+                                                   FontSize="12"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                                        <TextBlock Text="{Binding Command}"
+                                                   FontSize="11"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+
+                                        <TextBlock Text="{Binding DisabledReason}"
+                                                   FontSize="11"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <TextBlock x:Name="NoStartupText"
+                               Style="{StaticResource CardBodyStyle}"
+                               Text="还没有扫描开机自启项。" />
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</local:ModulePageBase>

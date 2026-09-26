@@ -1,0 +1,389 @@
+using System.Runtime.InteropServices;
+using Microsoft.UI;
+using Microsoft.UI.Composition.SystemBackdrops;
+using Microsoft.UI.Windowing;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using SeewoAssistant.Core.Configuration;
+using SeewoAssistant.Pages;
+using SeewoAssistant.Services;
+using Windows.Graphics;
+using WinRT.Interop;
+
+namespace SeewoAssistant;
+
+/// <summary>
+/// The shell window: title bar, side navigation, content frame and status bar.
+/// </summary>
+public sealed partial class MainWindow : Window
+{
+    private readonly AppServices _services;
+    private readonly TrayIcon? _trayIcon;
+
+    private AppWindow? _appWindow;
+    private bool _exitRequested;
+
+    public MainWindow(AppServices services)
+    {
+        _services = services;
+
+        InitializeComponent();
+
+        Title = "希沃助手";
+        ConfigureWindow();
+
+        // The status bar subscribes first so nothing reported during startup is lost.
+        _services.StatusReported += OnStatusReported;
+        _services.PrivacyMonitor.UsageDetected += OnPrivacyUsageDetected;
+
+        _trayIcon = TrayIcon.TryCreate();
+        if (_trayIcon is not null)
+        {
+            _trayIcon.OpenRequested += (_, _) => RestoreFromTray();
+            _trayIcon.ExitRequested += (_, _) => ExitApplication();
+            _trayIcon.TogglePrivacyRequested += (_, _) => TogglePrivacyMonitor();
+            _trayIcon.ToggleCameraRequested += (_, _) => ToggleVirtualCamera();
+            UpdateTrayTooltip();
+        }
+        else
+        {
+            _services.Logger.Warn("The tray icon could not be created; the app will close instead of minimising.");
+        }
+
+        // Navigate to the first module.
+        ContentFrame.Navigate(typeof(VirtualCameraPage), _services);
+
+        Closed += OnClosed;
+        UpdateElevationBadge();
+        UpdateStatusBar();
+    }
+
+    private void ConfigureWindow()
+    {
+        var windowHandle = WindowNative.GetWindowHandle(this);
+        var windowId = Win32Interop.GetWindowIdFromWindow(windowHandle);
+        _appWindow = AppWindow.GetFromWindowId(windowId);
+
+        if (_appWindow is null)
+        {
+            return;
+        }
+
+        // Extend the content into the title bar so the custom bar in the XAML is
+        // what the user sees, and drag regions work as expected.
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            _appWindow.TitleBar.ExtendsContentIntoTitleBar = true;
+            _appWindow.TitleBar.ButtonBackgroundColor = Colors.Transparent;
+            _appWindow.TitleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+
+            SetTitleBar(AppTitleBar);
+        }
+        else
+        {
+            // Without title-bar customisation the XAML title bar is redundant.
+            AppTitleBar.Visibility = Visibility.Collapsed;
+        }
+
+        _appWindow.Resize(new SizeInt32(1180, 820));
+
+        // Mica gives the window the Windows 11 depth effect. On Windows 10 the
+        // backdrop is unavailable, so a plain solid brush is used instead; the app
+        // must look deliberate on both, not broken on one.
+        TryApplyBackdrop();
+    }
+
+    private void TryApplyBackdrop()
+    {
+        try
+        {
+            if (MicaController.IsSupported())
+            {
+                SystemBackdrop = new MicaBackdrop { Kind = MicaKind.BaseAlt };
+            }
+            else if (DesktopAcrylicController.IsSupported())
+            {
+                SystemBackdrop = new DesktopAcrylicBackdrop();
+            }
+            else
+            {
+                // Windows 10: fall back to a solid themed background so the window is
+                // still fully readable.
+                RootGrid.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"];
+            }
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Warn($"Applying the window backdrop failed: {ex.Message}");
+        }
+    }
+
+    // ------------------------------------------------------------------ navigation
+
+    private void OnNavigationSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    {
+        if (args.SelectedItem is not NavigationViewItem item || item.Tag is not string tag)
+        {
+            return;
+        }
+
+        var pageType = tag switch
+        {
+            "camera" => typeof(VirtualCameraPage),
+            "privacy" => typeof(PrivacyPage),
+            "capture" => typeof(CaptureGuardPage),
+            "seewo" => typeof(SeewoPage),
+            "schedule" => typeof(SchedulePage),
+            "diagnostics" => typeof(DiagnosticsPage),
+            "settings" => typeof(SettingsPage),
+            _ => typeof(VirtualCameraPage),
+        };
+
+        if (ContentFrame.CurrentSourcePageType != pageType)
+        {
+            ContentFrame.Navigate(pageType, _services);
+        }
+    }
+
+    private void OnOpenSettings(object sender, RoutedEventArgs e)
+    {
+        Nav.SelectedItem = Nav.MenuItems
+            .OfType<NavigationViewItem>()
+            .FirstOrDefault(i => (i.Tag as string) == "settings");
+    }
+
+    // ------------------------------------------------------------------ theme
+
+    private void OnToggleTheme(object sender, RoutedEventArgs e)
+    {
+        // Cycling through three states rather than toggling two keeps the "follow
+        // the system" option reachable from the button.
+        var current = RootGrid.ActualTheme;
+        var next = current == ElementTheme.Light ? ElementTheme.Dark : ElementTheme.Light;
+
+        if (ContentFrame.Content is FrameworkElement page)
+        {
+            page.RequestedTheme = next;
+        }
+
+        RootGrid.RequestedTheme = next;
+        ThemeIcon.Glyph = next == ElementTheme.Dark ? "\uE708" : "\uE706";
+
+        _services.Report(next == ElementTheme.Dark ? "已切换到深色主题。" : "已切换到浅色主题。");
+    }
+
+    // ------------------------------------------------------------------ tray
+
+    /// <summary>Restores the window from the tray.</summary>
+    public void RestoreFromTray()
+    {
+        if (_appWindow is null)
+        {
+            return;
+        }
+
+        // AppWindow.Show() does not restore a minimised window; the presenter has to
+        // be set back to Overlapped first.
+        if (_appWindow.Presenter is OverlappedPresenter presenter)
+        {
+            if (presenter.State == OverlappedPresenterState.Minimized)
+            {
+                presenter.Restore();
+            }
+        }
+
+        _appWindow.Show();
+        Activate();
+    }
+
+    private void UpdateTrayTooltip()
+    {
+        if (_trayIcon is null)
+        {
+            return;
+        }
+
+        var privacy = _services.PrivacyMonitor.IsRunning ? "监控中" : "已停止";
+        var camera = _services.VirtualCamera.IsPumping ? "推流中" : "已停止";
+        _trayIcon.UpdateTooltip($"希沃助手 — 隐私监控：{privacy}，虚拟摄像头：{camera}");
+    }
+
+    private void TogglePrivacyMonitor()
+    {
+        if (_services.PrivacyMonitor.IsRunning)
+        {
+            _services.PrivacyMonitor.Stop();
+            _services.Report("已停止摄像头/麦克风监控。", StatusSeverity.Informational);
+        }
+        else
+        {
+            _services.PrivacyMonitor.Start();
+            _services.Report("已开启摄像头/麦克风监控。", StatusSeverity.Success);
+        }
+
+        UpdateTrayTooltip();
+        UpdateStatusBar();
+    }
+
+    private void ToggleVirtualCamera()
+    {
+        if (_services.VirtualCamera.IsPumping)
+        {
+            _services.VirtualCamera.StopPump();
+            _services.Report("已停止虚拟摄像头推流。", StatusSeverity.Informational);
+        }
+        else
+        {
+            _services.VirtualCamera.PushSolidColor(_services.Settings.VirtualCameraDefaultColor);
+            _services.Report(
+                $"已推送纯色画面 {_services.Settings.VirtualCameraDefaultColor}。",
+                StatusSeverity.Success);
+        }
+
+        UpdateTrayTooltip();
+        UpdateStatusBar();
+    }
+
+    // ------------------------------------------------------------------ status
+
+    private void OnStatusReported(object? sender, StatusMessage message)
+    {
+        // Reports arrive from background threads, so they must be marshalled.
+        DispatcherQueue.TryEnqueue(() => ShowStatus(message));
+    }
+
+    private void ShowStatus(StatusMessage message)
+    {
+        StatusText.Text = message.Text;
+
+        StatusIcon.Glyph = message.Severity switch
+        {
+            StatusSeverity.Success => "\uE73E",
+            StatusSeverity.Warning => "\uE7BA",
+            StatusSeverity.Error => "\uEA39",
+            _ => "\uE946",
+        };
+
+        TitleBarStatus.Text = message.Text;
+    }
+
+    private void OnPrivacyUsageDetected(object? sender, Core.Models.PrivacyUsageEvent usageEvent)
+    {
+        // Only a start is worth surfacing in the status bar.
+        if (usageEvent.Change != Core.Models.PrivacyUsageChange.Started)
+        {
+            return;
+        }
+
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            ShowStatus(new StatusMessage(
+                $"检测到 {usageEvent.BestName} 正在使用{usageEvent.DeviceName}",
+                StatusSeverity.Warning));
+
+            UpdateTrayTooltip();
+        });
+    }
+
+    private void UpdateStatusBar()
+    {
+        PrivacyStatusText.Text = _services.PrivacyMonitor.IsRunning
+            ? (_services.PrivacyMonitor.IsStoreReady ? "隐私监控：运行中" : "隐私监控：等待系统记录")
+            : "隐私监控：已停止";
+
+        CameraStatusText.Text = _services.VirtualCamera.IsPumping
+            ? $"虚拟摄像头：推流中（{_services.VirtualCamera.PublishedFrames} 帧）"
+            : "虚拟摄像头：已停止";
+    }
+
+    private void UpdateElevationBadge()
+    {
+        // Several features need elevation. Telling the user up front is far better
+        // than letting each of them fail individually with an access-denied error.
+        var isElevated = IsRunningElevated();
+
+        if (isElevated)
+        {
+            ElevationBadge.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ElevationBadgeText.Text = "未以管理员身份运行";
+        ToolTipService.SetToolTip(
+            ElevationBadge,
+            "跨进程防截屏、防火墙规则、修改计划任务和定时关机需要管理员权限。" +
+            "虚拟摄像头、隐私监控和本程序窗口的防截屏不受影响。");
+        ElevationBadge.Visibility = Visibility.Visible;
+    }
+
+    private static bool IsRunningElevated()
+    {
+        try
+        {
+            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            var principal = new System.Security.Principal.WindowsPrincipal(identity);
+            return principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    // ------------------------------------------------------------------ lifetime
+
+    private void OnClosed(object sender, WindowEventArgs args)
+    {
+        if (_exitRequested)
+        {
+            return;
+        }
+
+        // Closing the window should not kill a background privacy monitor unless the
+        // user asked for that. Cancel the close and hide instead.
+        if (_services.Settings.CloseBehavior == CloseBehavior.MinimizeToTray && _trayIcon is not null)
+        {
+            args.Handled = true;
+
+            if (_appWindow?.Presenter is OverlappedPresenter presenter)
+            {
+                presenter.Minimize();
+            }
+
+            _services.Report("希沃助手已最小化到托盘，后台服务继续运行。", StatusSeverity.Informational);
+            return;
+        }
+
+        ExitApplication();
+    }
+
+    private void ExitApplication()
+    {
+        if (_exitRequested)
+        {
+            return;
+        }
+
+        _exitRequested = true;
+
+        _services.StatusReported -= OnStatusReported;
+        _services.PrivacyMonitor.UsageDetected -= OnPrivacyUsageDetected;
+
+        _trayIcon?.Dispose();
+
+        // Disposal resumes suspended processes, unloads injected payloads, stops the
+        // frame pump and saves settings. It must run before the process exits, so it
+        // is awaited on a background task and the process is ended when it finishes.
+        var shutdown = Task.Run(async () => await _services.DisposeAsync());
+
+        shutdown.ContinueWith(_ =>
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                Close();
+                Environment.Exit(0);
+            });
+        }, TaskScheduler.Default);
+    }
+}

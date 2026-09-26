@@ -38,6 +38,15 @@
 namespace seewo {
 namespace dshow {
 
+// Array length helper. The DirectShow base classes provide NUMELMS, but we do
+// not take a dependency on them, so we spell it ourselves.
+template <typename T, size_t N>
+constexpr size_t ArrayCount(T (&)[N]) {
+    return N;
+}
+
+#define NUMELMS(array) (sizeof(array) / sizeof((array)[0]))
+
 class SeewoDShowFilter;
 
 // Opaque owner of one streaming session. Defined in SeewoOutputPin.cpp. The
@@ -202,7 +211,6 @@ public:
     HRESULT StopStreaming();
     HRESULT PauseStreaming();
     void SetSyncSource(IReferenceClock* clock);
-
     // --- Diagnostics ----------------------------------------------------------
     bool IsConnected() const;
     bool IsStreaming() const;
@@ -212,11 +220,18 @@ private:
     // caller-requested type and falling back to the first advertised format.
     bool ResolveStreamFormat(AM_MEDIA_TYPE* out) const;
 
-    // Creates or reuses the downstream allocator, sizes it, and commits it.
-    HRESULT PrepareAllocator();
+    // Sizes and commits `allocator`, then tells downstream about it. Called with
+    // no lock held: every one of these is a call into a peer COM object.
+    HRESULT PrepareAllocator(IMemAllocator* allocator);
 
     // Releases the streaming session, waiting a bounded time for the thread.
     void TeardownStreaming();
+
+    // Undoes a session whose start failed partway through. `context` must be
+    // held by the caller's own reference. If the pin still owns the session slot
+    // it is cleared and the slot reference dropped; if a concurrent Disconnect
+    // already retired it, only the worker is stopped.
+    void AbandonSession(StreamContext* context);
 
     // Non-owning: the filter outlives its pin because the filter holds the pin's
     // initial reference.
@@ -239,6 +254,11 @@ private:
     // Format requested through IAMStreamConfig before (or after) connection.
     AM_MEDIA_TYPE requestedType_{};
     bool hasRequestedType_ = false;
+
+    // The table entry the pin will stream with. Defaults to the first advertised
+    // format so GetAllocatorRequirements can answer before any negotiation.
+    VideoFormat format_{};
+    bool hasFormat_ = false;
 
     // Buffer negotiation hints from IAMBufferNegotiation.
     ALLOCATOR_PROPERTIES suggestedProperties_{};

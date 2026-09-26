@@ -45,9 +45,10 @@ LONG GetModuleObjectCount() noexcept;
 // ---------------------------------------------------------------------------
 // IMFActivate inherits from IMFAttributes.  Rather than reimplementing the
 // attribute store, a real IMFAttributes is created with MFCreateAttributes() and
-// every IMFAttributes call is forwarded to it verbatim.  WRL's RuntimeClass walks
-// the base-interface chain, so exposing IMFActivate also exposes IMFAttributes
-// and IUnknown through QueryInterface.
+// every IMFAttributes call is forwarded to it verbatim.  Only the most derived
+// interface (IMFActivate) is listed for WRL: RuntimeClass's QueryInterface
+// resolves base interfaces of the listed ones as well, so asking this object for
+// IMFAttributes or IUnknown succeeds through the same COM identity.
 class __declspec(uuid("A7E4B2C1-5D3F-4A88-9B6E-1C2D3E4F5A60"))
     SeewoVirtualCameraActivate
     : public Microsoft::WRL::RuntimeClass<

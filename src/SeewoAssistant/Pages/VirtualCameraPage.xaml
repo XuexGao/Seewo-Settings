@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?>
+<local:ModulePageBase
+    x:Class="SeewoAssistant.Pages.VirtualCameraPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:SeewoAssistant.Pages"
+    xmlns:controls="using:Microsoft.UI.Xaml.Controls">
+
+    <ScrollViewer Padding="32,24,32,32">
+        <StackPanel MaxWidth="900" HorizontalAlignment="Left">
+
+            <TextBlock Text="虚拟摄像头" Style="{StaticResource PageTitleStyle}" />
+            <TextBlock Style="{StaticResource PageSubtitleStyle}"
+                       Text="向系统注册一个虚拟摄像头，让 Zoom、Teams、微信等应用可以选择它，并推送你自己准备的画面。" />
+
+            <!-- Backend capability. Which implementation is available depends on the
+                 OS build, so this is stated plainly rather than hidden. -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="系统支持情况" Style="{StaticResource CardTitleStyle}" />
+                            <TextBlock x:Name="BackendSummaryText" Style="{StaticResource CardBodyStyle}" />
+                        </StackPanel>
+
+                        <Border x:Name="BackendBadge" Grid.Column="1" Style="{StaticResource StatusBadgeStyle}">
+                            <TextBlock x:Name="BackendBadgeText" FontSize="12" />
+                        </Border>
+                    </Grid>
+
+                    <InfoBar x:Name="BackendInfoBar"
+                             IsOpen="False"
+                             IsClosable="False"
+                             Severity="Informational" />
+                </StackPanel>
+            </Border>
+
+            <!-- Registration and instance management. -->
+            <TextBlock Text="摄像头注册" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Style="{StaticResource CardBodyStyle}"
+                               Text="首次使用需要把媒体源组件注册到系统，然后创建摄像头实例。注册需要管理员权限；创建实例不需要。" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="InstallButton" Click="OnInstall" Style="{StaticResource AccentButtonStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE896;" FontSize="14" />
+                                <TextBlock Text="一键安装（注册 + 创建）" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="CreateButton" Click="OnCreate">
+                            <TextBlock Text="创建摄像头实例" />
+                        </Button>
+
+                        <Button x:Name="RemoveButton" Click="OnRemove">
+                            <TextBlock Text="移除摄像头" />
+                        </Button>
+
+                        <Button x:Name="ListButton" Click="OnList">
+                            <TextBlock Text="列出系统设备" />
+                        </Button>
+
+                        <Button x:Name="UninstallButton" Click="OnUninstall">
+                            <TextBlock Text="完全卸载" />
+                        </Button>
+                    </StackPanel>
+
+                    <ProgressRing x:Name="SetupProgress" IsActive="False" Width="20" Height="20" HorizontalAlignment="Left" />
+
+                    <TextBlock x:Name="SetupOutputText"
+                               Style="{StaticResource MonospaceStyle}"
+                               FontSize="12"
+                               Visibility="Collapsed"
+                               IsTextSelectionEnabled="True" />
+                </StackPanel>
+            </Border>
+
+            <!-- Frame pushing. -->
+            <TextBlock Text="推送画面" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="16">
+
+                    <TextBlock Style="{StaticResource CardBodyStyle}"
+                               Text="推送的画面会实时出现在虚拟摄像头的输出里。停止推送后，摄像头会自动回退到内置的动态测试画面，不会黑屏。" />
+
+                    <!-- Colour -->
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="纯色画面" FontWeight="SemiBold" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBox x:Name="ColorTextBox"
+                                     Width="140"
+                                     Text="#1F6FEB"
+                                     PlaceholderText="#RRGGBB"
+                                     Header="颜色值" />
+
+                            <Rectangle x:Name="ColorPreview"
+                                       Width="40" Height="40"
+                                       RadiusX="4" RadiusY="4"
+                                       Stroke="{ThemeResource CardStrokeColorDefaultBrush}"
+                                       StrokeThickness="1"
+                                       VerticalAlignment="Bottom" />
+
+                            <Button x:Name="PushColorButton"
+                                    Click="OnPushColor"
+                                    VerticalAlignment="Bottom">
+                                <TextBlock Text="推送纯色" />
+                            </Button>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Click="OnPresetColor" Tag="#1F6FEB" Content="蓝" />
+                            <Button Click="OnPresetColor" Tag="#000000" Content="黑" />
+                            <Button Click="OnPresetColor" Tag="#FFFFFF" Content="白" />
+                            <Button Click="OnPresetColor" Tag="#00A86B" Content="绿" />
+                            <Button Click="OnPresetColor" Tag="#E85A3C" Content="橙" />
+                            <Button Click="OnPresetColor" Tag="#F5F5F5" Content="浅灰" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <MenuFlyoutSeparator />
+
+                    <!-- Image -->
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="本地图片" FontWeight="SemiBold" />
+                        <TextBlock Style="{StaticResource CardBodyStyle}"
+                                   Text="支持 PNG、JPG、BMP、GIF、TIFF。图片会按比例缩放并居中填充，不会变形。" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBox x:Name="ImagePathTextBox"
+                                     Width="420"
+                                     PlaceholderText="图片完整路径，例如 C:\Pictures\logo.png" />
+
+                            <Button x:Name="BrowseImageButton" Click="OnBrowseImage">
+                                <TextBlock Text="浏览…" />
+                            </Button>
+
+                            <Button x:Name="PushImageButton" Click="OnPushImage">
+                                <TextBlock Text="推送图片" />
+                            </Button>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <MenuFlyoutSeparator />
+
+                    <!-- Animated test pattern -->
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="动态测试画面" FontWeight="SemiBold" />
+                        <TextBlock Style="{StaticResource CardBodyStyle}"
+                                   Text="彩条 + 灰阶渐变 + 移动扫描条。用来确认摄像头是活的，也能肉眼看出延迟和掉帧。" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="TestPatternButton" Click="OnStartTestPattern" Style="{StaticResource AccentButtonStyle}">
+                                <TextBlock Text="开始推送测试画面" />
+                            </Button>
+
+                            <Button x:Name="StopButton" Click="OnStopPushing">
+                                <TextBlock Text="停止推送" />
+                            </Button>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <MenuFlyoutSeparator />
+
+                    <!-- Live status -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="推流状态" FontWeight="SemiBold" />
+                            <TextBlock x:Name="PumpStatusText" Style="{StaticResource CardBodyStyle}" Text="未在推流" />
+                        </StackPanel>
+
+                        <Border x:Name="PumpBadge" Grid.Column="1" Style="{StaticResource StatusBadgeStyle}">
+                            <TextBlock x:Name="PumpBadgeText" FontSize="12" />
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Output format -->
+            <TextBlock Text="输出设置" Style="{StaticResource SectionHeaderStyle}" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="16">
+                    <TextBlock Style="{StaticResource CardBodyStyle}"
+                               Text="分辨率越高越清晰，但推流开销也越大。1280×720 对绝大多数场景已经足够。" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <ComboBox x:Name="ResolutionCombo" Header="分辨率" Width="200" SelectionChanged="OnResolutionChanged" />
+                        <ComboBox x:Name="FpsCombo" Header="帧率" Width="140" SelectionChanged="OnFpsChanged" />
+                    </StackPanel>
+
+                    <ToggleSwitch x:Name="AutoStartToggle"
+                                  Header="随程序启动自动推送"
+                                  OnContent="已开启"
+                                  OffContent="已关闭"
+                                  Toggled="OnAutoStartToggled" />
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</local:ModulePageBase>
