@@ -351,7 +351,8 @@ jobs:
               @{ Source = 'artifacts/native/x64/Release';   Destination = "$target/native/x64" },
               @{ Source = 'artifacts/native/Win32/Release'; Destination = "$target/native/x86" })) {
 
-            Get-ChildItem $pair.Source -File -Include '*.dll', '*.exe' -ErrorAction SilentlyContinue |
+            Get-ChildItem $pair.Source -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Extension -in '.dll', '.exe' } |
               ForEach-Object { Copy-Item $_.FullName $pair.Destination -Force }
           }
 
@@ -412,7 +413,8 @@ jobs:
               @{ Source = 'artifacts/native/x64/Release';   Destination = 'artifacts/native-package/x64' },
               @{ Source = 'artifacts/native/Win32/Release'; Destination = 'artifacts/native-package/x86' })) {
 
-            Get-ChildItem $pair.Source -File -Include '*.dll', '*.exe' -ErrorAction SilentlyContinue |
+            Get-ChildItem $pair.Source -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Extension -in '.dll', '.exe' } |
               ForEach-Object { Copy-Item $_.FullName $pair.Destination -Force }
           }
 
