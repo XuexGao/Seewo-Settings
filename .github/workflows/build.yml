@@ -559,7 +559,20 @@ jobs:
         run: |
           $setup = 'artifacts/app/SeewoVirtualCamera.Setup.exe'
 
-          $output = & $setup list 2>&1 | Out-String
+          # The tool writes UTF-8 when its output is redirected. PowerShell 7 needs
+          # to be told that, otherwise it decodes the bytes as the legacy ANSI code
+          # page and every Chinese character becomes mojibake - which would look
+          # exactly like the bug this step exists to catch.
+          $previousEncoding = [Console]::OutputEncoding
+          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
+          try {
+            $output = & $setup list 2>&1 | Out-String
+          }
+          finally {
+            [Console]::OutputEncoding = $previousEncoding
+          }
+
           Write-Host $output
 
           $problems = @()

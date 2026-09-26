@@ -126,11 +126,20 @@ public sealed class ApplicationResolver
             var startInfo = new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{command.Replace("\"", "\\\"")}\"",
+                // [Console]::OutputEncoding is set inside the command so PowerShell
+                // emits UTF-8 on its redirected stdout. Package names are usually
+                // ASCII, but a display name can contain anything, and asking for a
+                // known encoding is more reliable than guessing the code page.
+                Arguments =
+                    "-NoProfile -NonInteractive -ExecutionPolicy Bypass " +
+                    "-Command \"[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); " +
+                    $"{command.Replace("\"", "\\\"")}\"",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardErrorEncoding = System.Text.Encoding.UTF8,
             };
 
             using var process = Process.Start(startInfo);

@@ -207,6 +207,14 @@ public sealed class VirtualCameraService : IAsyncDisposable
                 RedirectStandardError = true,
                 CreateNoWindow = true,
                 WorkingDirectory = ToolsDirectory,
+
+                // The setup tool writes UTF-8 when its output is redirected (it
+                // detects that stdout is not a console). Without this the text is
+                // decoded with the process's default code page and every Chinese
+                // character arrives as mojibake, which is what the user would see in
+                // the install output box.
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardErrorEncoding = System.Text.Encoding.UTF8,
             };
 
             using var process = Process.Start(startInfo);

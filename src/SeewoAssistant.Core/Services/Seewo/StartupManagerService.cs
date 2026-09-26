@@ -551,8 +551,15 @@ public sealed class StartupManagerService
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
-                StandardOutputEncoding = System.Text.Encoding.UTF8,
-                StandardErrorEncoding = System.Text.Encoding.UTF8,
+
+                // schtasks.exe and sc.exe are console programs that write in the
+                // console output code page (the OEM code page), not UTF-8. Decoding
+                // their output as UTF-8 would garble every localized status word and
+                // task name on a non-English Windows, so the OEM code page is used.
+                StandardOutputEncoding = System.Text.Encoding.GetEncoding(
+                    System.Globalization.CultureInfo.CurrentCulture.TextInfo.OEMCodePage),
+                StandardErrorEncoding = System.Text.Encoding.GetEncoding(
+                    System.Globalization.CultureInfo.CurrentCulture.TextInfo.OEMCodePage),
             };
 
             using var process = Process.Start(startInfo);
