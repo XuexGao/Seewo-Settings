@@ -1,0 +1,74 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>SeewoAssistant</RootNamespace>
+    <AssemblyName>SeewoAssistant</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12.0</LangVersion>
+
+    <!-- Unpackaged deployment: the app runs from a folder with no MSIX install and
+         no separate Windows App SDK runtime install. This is what makes the CI
+         artifact a plain zip the user can extract and run. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableMsixTooling>false</EnableMsixTooling>
+
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250228001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SeewoAssistant.Core\SeewoAssistant.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\app.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- The native components are built by the same CI job and dropped into
+       artifacts/native. Copying them here means a plain `dotnet publish` produces a
+       complete, runnable folder. The condition keeps a developer build working when
+       the native projects have not been built yet. -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\artifacts\native\x64\Release\SeewoVirtualCamera.dll')">
+    <None Include="$(MSBuildThisFileDirectory)..\..\artifacts\native\x64\Release\*.dll"
+          Link="native\x64\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\artifacts\native\Win32\Release\SeewoVirtualCamera.DShow.dll')">
+    <None Include="$(MSBuildThisFileDirectory)..\..\artifacts\native\Win32\Release\*.dll"
+          Link="native\x86\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\artifacts\native\x64\Release\SeewoVirtualCamera.Setup.exe')">
+    <None Include="$(MSBuildThisFileDirectory)..\..\artifacts\native\x64\Release\SeewoVirtualCamera.Setup.exe"
+          Link="SeewoVirtualCamera.Setup.exe"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

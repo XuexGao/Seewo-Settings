@@ -1,0 +1,15 @@
+; SeewoVirtualCamera.DShow.def
+;
+; Exports for the self-contained DirectShow virtual camera source filter.
+;
+; A DirectShow in-process filter DLL only ever needs the four standard COM
+; self-registration entry points. Everything else is discovered through
+; DllGetClassObject, so the export surface stays deliberately minimal.
+
+LIBRARY SeewoVirtualCamera.DShow
+
+EXPORTS
+    DllGetClassObject   PRIVATE
+    DllCanUnloadNow     PRIVATE
+    DllRegisterServer   PRIVATE
+    DllUnregisterServer PRIVATE

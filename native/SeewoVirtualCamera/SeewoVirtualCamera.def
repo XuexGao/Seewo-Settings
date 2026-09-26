@@ -1,0 +1,14 @@
+; SeewoVirtualCamera.def
+;
+; Export table for the Seewo virtual camera media source DLL.
+;
+; Only the two COM in-proc server entry points are exported. They must be
+; undecorated, which is why this module definition file is used instead of
+; __declspec(dllexport) (which would emit a decorated name for __stdcall on
+; 32-bit builds).
+
+LIBRARY SeewoVirtualCamera
+
+EXPORTS
+    DllGetClassObject   PRIVATE
+    DllCanUnloadNow     PRIVATE

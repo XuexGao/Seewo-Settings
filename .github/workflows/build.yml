@@ -1,0 +1,267 @@
+name: Build
+
+# Builds the managed app and every native component, runs the unit tests, and
+# publishes the runnable artifacts. Pushing a tag additionally creates a Release
+# with the same files attached.
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  # Keep the build deterministic and quiet.
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+  # The runner has 4 cores and 16 GB; the managed build is small, but the native
+  # build is memory hungry and parallel MSBuild instances add up.
+  MSBUILDDISABLENODEREUSE: '1'
+
+jobs:
+  build:
+    name: Build (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      # The native projects pin a specific Windows SDK version. Printing what the
+      # runner actually has makes a version mismatch obvious in the log instead of
+      # surfacing as a confusing missing-header error.
+      - name: Report the installed Windows SDKs
+        shell: pwsh
+        run: |
+          $roots = @(
+            "${env:ProgramFiles(x86)}\Windows Kits\10\Include",
+            "$env:ProgramFiles\Windows Kits\10\Include"
+          )
+          foreach ($root in $roots) {
+            if (Test-Path $root) {
+              Write-Host "SDK include root: $root"
+              Get-ChildItem $root -Directory | Select-Object -ExpandProperty Name | ForEach-Object { Write-Host "  $_" }
+            }
+          }
+          Write-Host "MSBuild: $((Get-Command msbuild).Source)"
+
+      - name: Show the MSBuild version
+        run: msbuild -version
+
+      # ------------------------------------------------------------------ native
+      # Each native project is built separately rather than through the solution so a
+      # failure names the exact component.
+
+      - name: Build the Media Foundation virtual camera (x64)
+        run: >
+          msbuild native/SeewoVirtualCamera/SeewoVirtualCamera.vcxproj
+          /p:Configuration=Release /p:Platform=x64
+          /m /v:minimal /nologo
+
+      - name: Build the DirectShow virtual camera (x64)
+        run: >
+          msbuild native/SeewoVirtualCamera.DShow/SeewoVirtualCamera.DShow.vcxproj
+          /p:Configuration=Release /p:Platform=x64
+          /m /v:minimal /nologo
+
+      - name: Build the DirectShow virtual camera (Win32)
+        run: >
+          msbuild native/SeewoVirtualCamera.DShow/SeewoVirtualCamera.DShow.vcxproj
+          /p:Configuration=Release /p:Platform=Win32
+          /m /v:minimal /nologo
+
+      - name: Build the virtual camera setup tool (x64)
+        run: >
+          msbuild native/SeewoVirtualCamera.Setup/SeewoVirtualCamera.Setup.vcxproj
+          /p:Configuration=Release /p:Platform=x64
+          /m /v:minimal /nologo
+
+      - name: Build the capture guard payload (x64)
+        run: >
+          msbuild native/SeewoCaptureGuard.Payload/SeewoCaptureGuard.Payload.vcxproj
+          /p:Configuration=Release /p:Platform=x64
+          /m /v:minimal /nologo
+
+      - name: Build the capture guard payload (Win32)
+        run: >
+          msbuild native/SeewoCaptureGuard.Payload/SeewoCaptureGuard.Payload.vcxproj
+          /p:Configuration=Release /p:Platform=Win32
+          /m /v:minimal /nologo
+
+      - name: List the native build output
+        shell: pwsh
+        run: |
+          if (Test-Path artifacts/native) {
+            Get-ChildItem artifacts/native -Recurse -File |
+              Select-Object FullName, Length |
+              Format-Table -AutoSize
+          } else {
+            Write-Error "artifacts/native was not produced."
+            exit 1
+          }
+
+      # ------------------------------------------------------------------ managed
+      # The managed projects are built individually rather than through the .sln,
+      # because the solution also contains the C++ projects and `dotnet build` does
+      # not drive vcxproj reliably.
+
+      - name: Restore managed packages
+        run: dotnet restore src/SeewoAssistant/SeewoAssistant.csproj
+
+      - name: Build the core library
+        run: dotnet build src/SeewoAssistant.Core/SeewoAssistant.Core.csproj -c Release -m:1
+
+      - name: Build the test project
+        run: dotnet build src/SeewoAssistant.Tests/SeewoAssistant.Tests.csproj -c Release -m:1
+
+      - name: Build the application
+        run: dotnet build src/SeewoAssistant/SeewoAssistant.csproj -c Release -m:1
+
+      - name: Run the unit tests
+        run: >
+          dotnet test src/SeewoAssistant.Tests/SeewoAssistant.Tests.csproj
+          -c Release --no-build
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory artifacts/test-results
+
+      - name: Publish the test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: artifacts/test-results
+          if-no-files-found: ignore
+
+      # ------------------------------------------------------------------ publish
+
+      # Self-contained single file: the user extracts the zip and runs the exe with
+      # no separate Windows App SDK or .NET install.
+      - name: Publish the application (win-x64)
+        run: >
+          dotnet publish src/SeewoAssistant/SeewoAssistant.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:WindowsPackageType=None
+          -p:WindowsAppSDKSelfContained=true
+          -o artifacts/publish/win-x64
+
+      # ARM64 as well, because the Windows App SDK ships native ARM64 binaries and
+      # the app is otherwise architecture neutral.
+      - name: Publish the application (win-arm64)
+        run: >
+          dotnet publish src/SeewoAssistant/SeewoAssistant.csproj
+          -c Release -r win-arm64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:WindowsPackageType=None
+          -p:WindowsAppSDKSelfContained=true
+          -o artifacts/publish/win-arm64
+
+      # ------------------------------------------------------------------ assemble
+
+      # Lay the release out the way the app expects to find it at runtime:
+      #   SeewoAssistant.exe            the app
+      #   SeewoVirtualCamera.Setup.exe  the camera management tool
+      #   native/x64/...                the native components
+      #   native/x86/...                the 32-bit DirectShow filter and payload
+      #   scripts/                      install and uninstall helpers
+      #   README.md, LICENSE            documentation
+      - name: Assemble the release folders
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          foreach ($arch in @('win-x64', 'win-arm64')) {
+            $target = "artifacts/release/$arch"
+            New-Item -ItemType Directory -Force -Path $target | Out-Null
+
+            Copy-Item "artifacts/publish/$arch/*" $target -Recurse -Force
+
+            # The publish output already contains native/x64 and native/x86 because
+            # the app project copies them; this makes the layout explicit and also
+            # covers a publish that ran before the native build.
+            New-Item -ItemType Directory -Force -Path "$target/native/x64" | Out-Null
+            New-Item -ItemType Directory -Force -Path "$target/native/x86" | Out-Null
+
+            $x64 = Get-ChildItem 'artifacts/native/x64/Release' -File -ErrorAction SilentlyContinue
+            foreach ($file in $x64) {
+              Copy-Item $file.FullName "$target/native/x64/" -Force
+            }
+
+            $x86 = Get-ChildItem 'artifacts/native/Win32/Release' -File -ErrorAction SilentlyContinue
+            foreach ($file in $x86) {
+              Copy-Item $file.FullName "$target/native/x86/" -Force
+            }
+
+            # The setup tool sits next to the app so the app finds it by name.
+            $setup = Get-ChildItem 'artifacts/native/x64/Release/SeewoVirtualCamera.Setup.exe' -ErrorAction SilentlyContinue
+            if ($setup) {
+              Copy-Item $setup.FullName "$target/SeewoVirtualCamera.Setup.exe" -Force
+            }
+
+            Copy-Item 'scripts/*' "$target/scripts/" -Recurse -Force -ErrorAction SilentlyContinue
+            Copy-Item 'README.md' $target -Force -ErrorAction SilentlyContinue
+            Copy-Item 'LICENSE' $target -Force -ErrorAction SilentlyContinue
+
+            Write-Host "Contents of $target :"
+            Get-ChildItem $target -Recurse -File |
+              Select-Object @{N='Path';E={$_.FullName.Replace($PWD.Path, '')}}, Length |
+              Format-Table -AutoSize
+          }
+
+      - name: Create the release archives
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path artifacts/dist | Out-Null
+
+          Compress-Archive -Path 'artifacts/release/win-x64/*' `
+            -DestinationPath 'artifacts/dist/SeewoAssistant-win-x64.zip' -Force
+
+          Compress-Archive -Path 'artifacts/release/win-arm64/*' `
+            -DestinationPath 'artifacts/dist/SeewoAssistant-win-arm64.zip' -Force
+
+          # The native components on their own, for someone who already has the app
+          # and only wants to update them.
+          New-Item -ItemType Directory -Force -Path artifacts/native-package/x64 | Out-Null
+          New-Item -ItemType Directory -Force -Path artifacts/native-package/x86 | Out-Null
+          Copy-Item 'artifacts/native/x64/Release/*' 'artifacts/native-package/x64/' -Force -ErrorAction SilentlyContinue
+          Copy-Item 'artifacts/native/Win32/Release/*' 'artifacts/native-package/x86/' -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path 'artifacts/native-package/*' `
+            -DestinationPath 'artifacts/dist/SeewoAssistant-native-components.zip' -Force
+
+          Get-ChildItem artifacts/dist | Select-Object Name, Length | Format-Table -AutoSize
+
+      - name: Upload the release archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: SeewoAssistant-release
+          path: artifacts/dist/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      # ------------------------------------------------------------------ release
+
+      - name: Create a GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/dist/*.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,29 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+ARM64/
+*.user
+*.aps
+*.suo
+.vs/
+
+# .NET
+artifacts/
+publish/
+TestResults/
+*.binlog
+
+# NuGet
+*.nupkg
+packages/
+!packages/build/
+
+# Misc
+*.log
+*.tmp
+Thumbs.db
+desktop.ini

@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- net8.0-windows (not the WinRT-flavoured TFM) because this library only needs
+         plain Win32 P/Invoke, the registry and WMI. Keeping it off the Windows App
+         SDK means it can be referenced by the test project without dragging in the
+         WinUI runtime. -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12.0</LangVersion>
+    <RootNamespace>SeewoAssistant.Core</RootNamespace>
+    <AssemblyName>SeewoAssistant.Core</AssemblyName>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The model types (ActionResult, PrivacyUsageEvent, ProcessRule, WindowInfo,
+         ScheduledAction) are used by nearly every service, so importing the
+         namespace once here is clearer than repeating it in thirty files. -->
+    <Using Include="SeewoAssistant.Core.Models" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WMI, used to read another process's command line. -->
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lets the test project reach internal types such as GuardChannel and
+         FrameChannelContract without making them public. -->
+    <InternalsVisibleTo Include="SeewoAssistant.Tests" />
+  </ItemGroup>
+
+</Project>
