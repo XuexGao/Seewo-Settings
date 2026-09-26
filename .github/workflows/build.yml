@@ -344,20 +344,54 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$target/native/x64" | Out-Null
           New-Item -ItemType Directory -Force -Path "$target/native/x86" | Out-Null
 
-          Copy-Item 'artifacts/native/x64/Release/*' "$target/native/x64/" -Force
-          Copy-Item 'artifacts/native/Win32/Release/*' "$target/native/x86/" -Force
+          # Only the loadable binaries are shipped. The linker also emits .pdb, .exp
+          # and .lib files next to them; those are build intermediates and would
+          # roughly triple the download for no benefit to the user.
+          foreach ($pair in @(
+              @{ Source = 'artifacts/native/x64/Release';   Destination = "$target/native/x64" },
+              @{ Source = 'artifacts/native/Win32/Release'; Destination = "$target/native/x86" })) {
+
+            Get-ChildItem $pair.Source -File -Include '*.dll', '*.exe' -ErrorAction SilentlyContinue |
+              ForEach-Object { Copy-Item $_.FullName $pair.Destination -Force }
+          }
 
           # The setup tool sits next to the app so the app finds it by name.
           Copy-Item 'artifacts/native/x64/Release/SeewoVirtualCamera.Setup.exe' $target -Force
+
+          # Drop the debug symbols the managed publish produced; they are useful when
+          # attached to a build but not in a user-facing download.
+          Get-ChildItem $target -Filter '*.pdb' -File | Remove-Item -Force
 
           Copy-Item 'scripts' "$target/scripts" -Recurse -Force
           Copy-Item 'README.md' $target -Force
           Copy-Item 'LICENSE' $target -Force
 
+          # Fail loudly if an expected piece is missing, rather than shipping a zip
+          # that looks complete but is not.
+          $required = @(
+            "$target/SeewoAssistant.exe",
+            "$target/SeewoVirtualCamera.Setup.exe",
+            "$target/native/x64/SeewoVirtualCamera.dll",
+            "$target/native/x64/SeewoVirtualCamera.DShow.dll",
+            "$target/native/x64/SeewoCaptureGuard.Payload.dll",
+            "$target/native/x86/SeewoVirtualCamera.DShow.dll",
+            "$target/native/x86/SeewoCaptureGuard.Payload.dll",
+            "$target/scripts/Install-Native.ps1"
+          )
+
+          $missing = $required | Where-Object { -not (Test-Path $_) }
+          if ($missing) {
+            Write-Error "发行包缺少以下文件：`n$($missing -join "`n")"
+            exit 1
+          }
+
           Write-Host "Contents of $target :"
           Get-ChildItem $target -Recurse -File |
             Select-Object @{N='Path';E={$_.FullName.Replace($PWD.Path, '')}}, Length |
             Format-Table -AutoSize
+
+          $totalMb = [math]::Round((Get-ChildItem $target -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1)
+          Write-Host "发行包总大小：$totalMb MB"
 
       - name: Create the release archives
         shell: pwsh
@@ -369,11 +403,19 @@ jobs:
             -DestinationPath 'artifacts/dist/SeewoAssistant-win-x64.zip' -Force
 
           # The native components on their own, for someone who already has the app
-          # and only wants to update them.
+          # and only wants to update them. Binaries only, for the same reason as the
+          # main archive.
           New-Item -ItemType Directory -Force -Path artifacts/native-package/x64 | Out-Null
           New-Item -ItemType Directory -Force -Path artifacts/native-package/x86 | Out-Null
-          Copy-Item 'artifacts/native/x64/Release/*' 'artifacts/native-package/x64/' -Force -ErrorAction SilentlyContinue
-          Copy-Item 'artifacts/native/Win32/Release/*' 'artifacts/native-package/x86/' -Force -ErrorAction SilentlyContinue
+
+          foreach ($pair in @(
+              @{ Source = 'artifacts/native/x64/Release';   Destination = 'artifacts/native-package/x64' },
+              @{ Source = 'artifacts/native/Win32/Release'; Destination = 'artifacts/native-package/x86' })) {
+
+            Get-ChildItem $pair.Source -File -Include '*.dll', '*.exe' -ErrorAction SilentlyContinue |
+              ForEach-Object { Copy-Item $_.FullName $pair.Destination -Force }
+          }
+
           Compress-Archive -Path 'artifacts/native-package/*' `
             -DestinationPath 'artifacts/dist/SeewoAssistant-native-components.zip' -Force
 

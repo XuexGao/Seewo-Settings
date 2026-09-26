@@ -223,7 +223,10 @@ public sealed partial class SchedulePage : ModulePageBase
         EditorHeader.Text = "新建任务";
 
         TaskNameBox.Text = string.Empty;
+
+        _suppressCronValidation = true;
         CronBox.Text = "0 8 * * *";
+        _suppressCronValidation = false;
 
         ClearActions();
         ValidateCron();
@@ -237,7 +240,10 @@ public sealed partial class SchedulePage : ModulePageBase
         EditorHeader.Text = $"编辑任务：{task.Name}";
 
         TaskNameBox.Text = task.Name;
+
+        _suppressCronValidation = true;
         CronBox.Text = task.Cron;
+        _suppressCronValidation = false;
 
         ClearActions();
 
@@ -272,7 +278,13 @@ public sealed partial class SchedulePage : ModulePageBase
     {
         if (sender is Button { Tag: string expression })
         {
+            // Assigning Text raises TextChanged; the handler would validate while the
+            // rest of the editor is still empty. Set the guard and validate once here.
+            _suppressCronValidation = true;
             CronBox.Text = expression;
+            _suppressCronValidation = false;
+
+            ValidateCron();
         }
     }
 
