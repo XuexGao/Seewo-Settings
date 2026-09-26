@@ -222,15 +222,49 @@ jobs:
       # build would need every native project compiled for ARM64 as well. Shipping
       # an ARM64 archive whose native components could not load would be worse than
       # not shipping one, so it is deliberately omitted rather than half-done.
-      - name: Publish the application (win-x64)
+      #
+      # Single-file is attempted first because it is the nicest artifact to hand a
+      # user. It depends on the Windows App SDK generating an embedded
+      # resources.pri, which is sensitive to SDK version, so a plain self-contained
+      # folder publish is kept as a fallback. Both are extract-and-run; the step
+      # summary says which one produced the archive so the difference is never
+      # silent.
+      - name: Publish the application (win-x64, single file)
+        id: publish_single_file
+        continue-on-error: true
         run: >
           dotnet publish src/SeewoAssistant/SeewoAssistant.csproj
           -c Release -r win-x64 --self-contained true
           -p:PublishSingleFile=true
           -p:WindowsPackageType=None
           -p:WindowsAppSDKSelfContained=true
+          -p:EnableMsixTooling=true
           -p:Platform=x64
           -o artifacts/publish/win-x64
+
+      - name: Publish the application (win-x64, self-contained folder)
+        if: steps.publish_single_file.outcome != 'success'
+        run: |
+          Write-Host "Single-file publish did not succeed; falling back to a self-contained folder publish." -ForegroundColor Yellow
+          dotnet publish src/SeewoAssistant/SeewoAssistant.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=false `
+            -p:WindowsPackageType=None `
+            -p:WindowsAppSDKSelfContained=true `
+            -p:Platform=x64 `
+            -o artifacts/publish/win-x64
+        shell: pwsh
+
+      - name: Record which publish mode was used
+        shell: pwsh
+        run: |
+          if ('${{ steps.publish_single_file.outcome }}' -eq 'success') {
+            Write-Host '发布模式：单文件 exe' -ForegroundColor Green
+            "PublishMode=单文件 exe" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          } else {
+            Write-Host '发布模式：自包含文件夹（单文件发布未成功，已回退）' -ForegroundColor Yellow
+            "PublishMode=自包含文件夹（单文件发布未成功，已回退）" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
 
       # ------------------------------------------------------------------ assemble
 

@@ -15,8 +15,9 @@
 // filter<->pin reference cycle that leaks a whole graph.
 #include "SeewoDShowFilter.h"
 
-#include <new>
+#include <atomic>
 #include <cstring>
+#include <new>
 #include <strsafe.h>
 
 namespace seewo {

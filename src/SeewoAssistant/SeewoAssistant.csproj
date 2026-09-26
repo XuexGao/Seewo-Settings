@@ -22,7 +22,14 @@
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <EnableMsixTooling>false</EnableMsixTooling>
+
+    <!-- PublishSingleFile requires EnableMsixTooling even for an unpackaged app:
+         the Windows App SDK uses it to generate the embedded resources.pri that a
+         single-file bundle needs. Turning it off fails the build with "PublishSingleFile
+         requires EnableMsixTooling for embedded resources.pri generation". -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <GenerateAppInstallerFile>false</GenerateAppInstallerFile>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
 
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>

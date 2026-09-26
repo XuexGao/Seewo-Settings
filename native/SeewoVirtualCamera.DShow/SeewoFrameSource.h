@@ -77,6 +77,11 @@ struct FrameRequest {
 // than by whatever jitter QueryPerformanceCounter happens to return. We therefore
 // quantise wall-clock elapsed time down to a frame boundary and then force strict
 // monotonicity.
+//
+// Times are plain int64_t 100 ns units rather than REFERENCE_TIME so this header
+// stays free of any DirectShow dependency: REFERENCE_TIME is declared by
+// strmif.h, and pulling that in here would defeat the whole point of keeping the
+// pixel plumbing independent of the filter interfaces.
 class FrameClock {
 public:
     FrameClock();
@@ -85,7 +90,7 @@ public:
     void Start();
 
     // Returns the presentation time for the next sample, in 100 ns units.
-    REFERENCE_TIME Next(int64_t frameInterval);
+    int64_t Next(int64_t frameInterval);
 
     // Clears the accumulated position; the next Start() begins from zero again.
     void Reset();
@@ -93,7 +98,7 @@ public:
 private:
     LARGE_INTEGER base_{};
     LARGE_INTEGER frequency_{};
-    REFERENCE_TIME last_ = 0;
+    int64_t last_ = 0;
     bool started_ = false;
 };
 

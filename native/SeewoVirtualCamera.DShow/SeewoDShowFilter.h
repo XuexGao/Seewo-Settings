@@ -98,7 +98,7 @@ private:
     mutable CRITICAL_SECTION lock_{};
 
     SeewoOutputPin* pin_ = nullptr;  // add-ref'd, owns the filter's lifetime
-    FILTER_STATE state_ = State_Stopped;
+    std::atomic<FILTER_STATE> state_{State_Stopped};
 
     IFilterGraph* graph_ = nullptr;  // add-ref'd
     WCHAR name_[128] = {};

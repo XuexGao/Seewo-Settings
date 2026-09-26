@@ -31,6 +31,7 @@
 #include <mmsystem.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <memory>
 #include <new>
@@ -694,8 +695,11 @@ bool DeliverOneFrame(StreamContext* context, FrameClock& clock,
     }
     sample->SetActualDataLength(static_cast<LONG>(written));
 
-    const REFERENCE_TIME start = clock.Next(frameInterval);
-    const REFERENCE_TIME end = start + frameInterval;
+    // IMediaSample::SetTime takes non-const REFERENCE_TIME* out-parameters, so
+    // these must be non-const locals. FrameClock::Next returns int64_t, which is
+    // the same underlying type as REFERENCE_TIME (LONGLONG) on MSVC.
+    REFERENCE_TIME start = clock.Next(frameInterval);
+    REFERENCE_TIME end = start + frameInterval;
     sample->SetTime(&start, &end);
     sample->SetMediaTime(nullptr, nullptr);
     // A live source marks every sample as a sync point: there is no keyframe

@@ -3,18 +3,25 @@
 // See the header for the threading model.  The key point is that RequestSample()
 // never generates pixels: it records the token and posts a work item, so the
 // FrameServer's calling thread is never blocked by frame production.
+//
+// The KS headers are included first, before any Media Foundation header, which
+// is the ordering the Windows samples use and the one the DDK headers expect.
+// They are DDK-derived and not written to be clean at /W4, so their warnings are
+// suppressed; that affects only the system headers, not this file's own code.
+#include <windows.h>
+
+#pragma warning(push, 0)
+#include <ks.h>
+#include <ksproxy.h>
+#include <ksmedia.h>
+#pragma warning(pop)
+
 #include "SeewoMediaStream.h"
 
 #include "SeewoMediaSource.h"
 
 #include <mfobjects.h>
 #include <mferror.h>
-// PINNAME_VIDEO_CAPTURE and the MFFrameSourceTypes enum used to describe a
-// capture stream.  ksmedia.h requires ks.h and then ksproxy.h to be included
-// first; the PINNAME_* GUIDs themselves resolve from ksguid.lib.
-#include <ks.h>
-#include <ksproxy.h>
-#include <ksmedia.h>
 
 #include <algorithm>
 #include <new>
@@ -32,6 +39,9 @@ constexpr UINT kAltWidth = 1280;
 constexpr UINT kAltHeight = 720;
 constexpr UINT kFrameRateNumerator = 30;
 constexpr UINT kFrameRateDenominator = 1;
+
+// Initial capacity of the stream's attribute store; it grows on demand.
+constexpr UINT32 kStreamAttributeCount = 8;
 
 // Builds one complete video media type.
 HRESULT CreateVideoType(REFGUID subtype, UINT width, UINT height,
@@ -78,7 +88,13 @@ HRESULT CreateVideoType(REFGUID subtype, UINT width, UINT height,
     // Foundation computes a correct value for a progressive, all-samples-
     // independent type.  The frame source handles either scanline order when it
     // writes into the sample buffer.
-    hr = mediaType->SetUINT32(MF_MT_SAMPLE_SIZE, frameBytes);
+    //
+    // MF_MT_SAMPLE_SIZE is only meaningful alongside MF_MT_FIXED_SIZE_SAMPLES, so
+    // both are set together.
+    hr = mediaType->SetUINT32(MF_MT_FIXED_SIZE_SAMPLES, TRUE);
+    if (SUCCEEDED(hr)) {
+      hr = mediaType->SetUINT32(MF_MT_SAMPLE_SIZE, frameBytes);
+    }
   }
   if (SUCCEEDED(hr)) {
     *type = mediaType.Detach();
@@ -133,7 +149,7 @@ HRESULT SeewoMediaStream::Initialize(SeewoMediaSource* source, DWORD streamId) {
   HRESULT hr = CreateStreamDescriptorLocked();
 
   if (SUCCEEDED(hr)) {
-    hr = ::MFCreateAttributes(&attributes_, 8);
+    hr = ::MFCreateAttributes(&attributes_, kStreamAttributeCount);
   }
   if (SUCCEEDED(hr)) {
     hr = SetStreamAttributesLocked(attributes_.Get());
@@ -144,27 +160,27 @@ HRESULT SeewoMediaStream::Initialize(SeewoMediaSource* source, DWORD streamId) {
   if (SUCCEEDED(hr)) {
     // A private work queue for frame production.
     //
-    // Note the asymmetric APIs: MFAllocateSerialWorkQueue RETURNS the queue
-    // identifier (and takes the queue to serialise against), whereas
-    // MFAllocateWorkQueue takes a DWORD* out-parameter and returns an HRESULT.
-    // Both are used correctly below.
+    // The two APIs have different shapes:
+    //   HRESULT MFAllocateSerialWorkQueue(DWORD dwWorkQueue, DWORD* pdwWorkQueue)
+    //   HRESULT MFAllocateWorkQueue(DWORD* pdwWorkQueue)
+    // Both return an HRESULT and write the identifier through an out-parameter.
     //
-    // A serial queue is preferred: it gives frame production its own thread
-    // rather than sharing one of the MFASYNC_CALLBACK_QUEUE_* pools, so a slow
-    // producer cannot stall Media Foundation's own callbacks and two streams can
-    // never race.
-    workQueueId_ = ::MFAllocateSerialWorkQueue(
-        MFASYNC_CALLBACK_QUEUE_MULTITHREADED);
-    workQueueValid_ = (workQueueId_ != 0);
+    // A serial queue is preferred: it serialises work items FIFO on top of a
+    // multithreaded pool, so frame production cannot stall Media Foundation's
+    // own callbacks and two streams can never race.
+    hr = ::MFAllocateSerialWorkQueue(MFASYNC_CALLBACK_QUEUE_MULTITHREADED,
+                                     &workQueueId_);
+    workQueueValid_ = SUCCEEDED(hr) && workQueueId_ != 0;
 
     if (!workQueueValid_) {
-      // Fall back to a standard work queue if a dedicated serial one could not
-      // be created; MFPutWorkItem works with either.
+      // Fall back to a plain work queue if a dedicated serial one could not be
+      // created; MFPutWorkItem works with either.
       DWORD fallbackQueueId = 0;
       const HRESULT hrQueue = ::MFAllocateWorkQueue(&fallbackQueueId);
       if (SUCCEEDED(hrQueue) && fallbackQueueId != 0) {
         workQueueId_ = fallbackQueueId;
         workQueueValid_ = true;
+        hr = S_OK;
       } else {
         hr = FAILED(hrQueue) ? hrQueue : E_FAIL;
       }
@@ -188,7 +204,9 @@ HRESULT SeewoMediaStream::CreateStreamDescriptorLocked() {
       {MFVideoFormat_NV12, kAltWidth, kAltHeight},
       {MFVideoFormat_RGB32, kAltWidth, kAltHeight},
   };
-  const DWORD count = ARRAYSIZE(kTypes);
+  // ARRAYSIZE yields a size_t; narrow it explicitly so /W4 does not report a
+  // possible loss of data.
+  const DWORD count = static_cast<DWORD>(ARRAYSIZE(kTypes));
 
   std::vector<Microsoft::WRL::ComPtr<IMFMediaType>> types;
   std::vector<IMFMediaType*> raw;

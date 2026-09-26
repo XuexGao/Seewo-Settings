@@ -74,12 +74,16 @@ inline uint8_t RgbToV(int r, int g, int b) {
   return ClampToByte(((112 * r - 94 * g - 18 * b + 128) >> 8) + 128);
 }
 
-// Reads a BGRA pixel at a clamped coordinate.
-inline void LoadBgra(const uint8_t* base, int stride, int x, int y, int width,
-                     int height, uint8_t* bgr) {
+// Reads a BGRA pixel at a clamped coordinate.  `stride` is passed as size_t
+// because every caller has already validated it as positive, and using an
+// unsigned type here keeps the pointer arithmetic free of signed/unsigned
+// conversion warnings at /W4.
+inline void LoadBgra(const uint8_t* base, size_t stride, int x, int y,
+                     int width, int height, uint8_t* bgr) {
   x = std::min(std::max(x, 0), width - 1);
   y = std::min(std::max(y, 0), height - 1);
-  const uint8_t* p = base + static_cast<size_t>(y) * stride + x * 4;
+  const uint8_t* p = base + static_cast<size_t>(y) * stride +
+                     static_cast<size_t>(x) * 4u;
   bgr[0] = p[0];
   bgr[1] = p[1];
   bgr[2] = p[2];
@@ -243,7 +247,8 @@ bool SeewoFrameSource::TryTakeLiveFrameLocked() {
   // Two attempts is enough; the next sample will simply pick up the newer frame.
   for (int attempt = 0; attempt < 2; ++attempt) {
     const uint32_t indexBefore = header->frameIndex;
-    ScaleBgraLocked(payload, srcWidth, srcHeight, static_cast<int>(srcStride));
+    ScaleBgraLocked(payload, srcWidth, srcHeight,
+                    static_cast<size_t>(srcStride));
     if (header->frameIndex == indexBefore) {
       return true;
     }
@@ -255,7 +260,7 @@ bool SeewoFrameSource::TryTakeLiveFrameLocked() {
 }
 
 void SeewoFrameSource::ScaleBgraLocked(const uint8_t* src, UINT srcWidth,
-                                       UINT srcHeight, int srcStride) {
+                                       UINT srcHeight, size_t srcStride) {
   uint8_t* dst = outputBgra_.data();
   const UINT dstWidth = width_;
   const UINT dstHeight = height_;
@@ -307,10 +312,14 @@ void SeewoFrameSource::ScaleBgraLocked(const uint8_t* src, UINT srcWidth,
       uint8_t p01[3];
       uint8_t p10[3];
       uint8_t p11[3];
-      LoadBgra(src, srcStride, x0, y0, srcWidth, srcHeight, p00);
-      LoadBgra(src, srcStride, x1, y0, srcWidth, srcHeight, p01);
-      LoadBgra(src, srcStride, x0, y1, srcWidth, srcHeight, p10);
-      LoadBgra(src, srcStride, x1, y1, srcWidth, srcHeight, p11);
+      LoadBgra(src, srcStride, x0, y0, static_cast<int>(srcWidth),
+               static_cast<int>(srcHeight), p00);
+      LoadBgra(src, srcStride, x1, y0, static_cast<int>(srcWidth),
+               static_cast<int>(srcHeight), p01);
+      LoadBgra(src, srcStride, x0, y1, static_cast<int>(srcWidth),
+               static_cast<int>(srcHeight), p10);
+      LoadBgra(src, srcStride, x1, y1, static_cast<int>(srcWidth),
+               static_cast<int>(srcHeight), p11);
 
       const double w00 = (1.0 - fx) * (1.0 - fy);
       const double w01 = fx * (1.0 - fy);
@@ -577,7 +586,6 @@ HRESULT SeewoFrameSource::ProduceFrame(IMFSample* sample, LONGLONG sampleTime,
     return MF_E_SHUTDOWN;
   }
 
-  bool live = false;
   if (!TryTakeLiveFrameLocked()) {
     // No producer, invalid header, or a stale/torn frame: synthesise.
     RenderTestPatternLocked(::GetTickCount64());
@@ -589,7 +597,6 @@ HRESULT SeewoFrameSource::ProduceFrame(IMFSample* sample, LONGLONG sampleTime,
       DropChannelLocked();
     }
   } else {
-    live = true;
     consecutiveMisses_ = 0;
     ++liveFrames_;
   }
@@ -607,9 +614,6 @@ HRESULT SeewoFrameSource::ProduceFrame(IMFSample* sample, LONGLONG sampleTime,
     hr = sample->SetSampleDuration(duration);
   }
 
-  if (SUCCEEDED(hr) && live) {
-    // Nothing to do: the live path needs no bookkeeping beyond the counter.
-  }
   return hr;
 }
 
@@ -618,8 +622,10 @@ void SeewoFrameSource::Shutdown() {
   if (!shutdown_) {
     shutdown_ = true;
     DropChannelLocked();
+    // clear() is used rather than swap-with-empty: it cannot throw, which
+    // matters because this runs inside a COM method.  The allocation is released
+    // when the vector is destroyed.
     outputBgra_.clear();
-    outputBgra_.shrink_to_fit();
     configured_ = false;
   }
   ::ReleaseSRWLockExclusive(&lock_);

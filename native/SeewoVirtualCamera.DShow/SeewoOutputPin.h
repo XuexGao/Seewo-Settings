@@ -29,9 +29,11 @@
 #include <uuids.h>
 #include <amvideo.h>
 #include <dvdmedia.h>
+#include <strsafe.h>
 
 #include <atomic>
 #include <cstdint>
+#include <cwchar>
 
 #include "SeewoFrameSource.h"
 
@@ -39,13 +41,11 @@ namespace seewo {
 namespace dshow {
 
 // Array length helper. The DirectShow base classes provide NUMELMS, but we do
-// not take a dependency on them, so we spell it ourselves.
-template <typename T, size_t N>
-constexpr size_t ArrayCount(T (&)[N]) {
-    return N;
-}
-
+// not take a dependency on them, so we spell it ourselves. strmif.h has been
+// known to define this too, so guard rather than risk a C4005 redefinition.
+#ifndef NUMELMS
 #define NUMELMS(array) (sizeof(array) / sizeof((array)[0]))
+#endif
 
 class SeewoDShowFilter;
 

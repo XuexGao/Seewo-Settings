@@ -113,7 +113,7 @@ void FrameClock::Reset() {
     started_ = false;
 }
 
-REFERENCE_TIME FrameClock::Next(int64_t frameInterval) {
+int64_t FrameClock::Next(int64_t frameInterval) {
     if (!started_) {
         Start();
     }
@@ -142,7 +142,7 @@ REFERENCE_TIME FrameClock::Next(int64_t frameInterval) {
     }
     last_ = quantised;
 
-    return static_cast<REFERENCE_TIME>(quantised);
+    return quantised;
 }
 
 // ---------------------------------------------------------------------------

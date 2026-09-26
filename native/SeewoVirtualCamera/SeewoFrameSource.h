@@ -91,9 +91,9 @@ class SeewoFrameSource {
 
   // --- conversion -----------------------------------------------------------
   // Bilinear scale of a BGRA image into m_outputBgra.  A same-size request is a
-  // row-wise copy.
+  // row-wise copy.  `srcStride` is a validated positive byte count.
   void ScaleBgraLocked(const uint8_t* src, UINT srcWidth, UINT srcHeight,
-                       int srcStride);
+                       size_t srcStride);
   // Writes m_outputBgra into the sample, as RGB32 or NV12.
   HRESULT CopyOutputToSampleLocked(IMFSample* sample) const;
 
