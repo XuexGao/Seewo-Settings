@@ -4,17 +4,9 @@
 // never generates pixels: it records the token and posts a work item, so the
 // FrameServer's calling thread is never blocked by frame production.
 //
-// The KS headers are included first, before any Media Foundation header, which
-// is the ordering the Windows samples use and the one the DDK headers expect.
-// They are DDK-derived and not written to be clean at /W4, so their warnings are
-// suppressed; that affects only the system headers, not this file's own code.
 #include <windows.h>
 
-#pragma warning(push, 0)
-#include <ks.h>
-#include <ksproxy.h>
-#include <ksmedia.h>
-#pragma warning(pop)
+#include "SeewoKsGuid.h"
 
 #include "SeewoMediaStream.h"
 

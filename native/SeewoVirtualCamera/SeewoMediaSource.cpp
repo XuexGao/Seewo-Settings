@@ -2,28 +2,15 @@
 //
 // See the header for the threading model and interface notes.
 //
-// The KS headers are included first, before any Media Foundation header, which is
-// the ordering the Windows samples use and the one the DDK headers expect.  They
-// are DDK-derived and not written to be clean at /W4, so their warnings are
-// suppressed; that affects only the system headers, not this file's own code.
-#include <windows.h>
-
-#pragma warning(push, 0)
-#include <ks.h>
-#include <ksproxy.h>
-#include <ksmedia.h>
-#pragma warning(pop)
-
 #include "SeewoMediaSource.h"
+
+#include "SeewoKsGuid.h"
 
 #include <mfobjects.h>
 #include <mferror.h>
 
-// PINNAME_VIDEO_CAPTURE (used for MF_DEVICESTREAM_STREAM_CATEGORY) comes from
-// ksmedia.h above.  initguid.h is deliberately NOT included: guiddef.h has
-// already been pulled in, so DEFINE_GUID is already in its "extern declaration"
-// form and initguid.h would be a no-op.  The PINNAME_* GUID symbols are
-// therefore resolved at link time from ksguid.lib, which the project links.
+// PINNAME_VIDEO_CAPTURE (used for MF_DEVICESTREAM_STREAM_CATEGORY) is defined by
+// SeewoKsGuid.h rather than taken from ksmedia.h; see that header for why.
 
 #include <new>
 
