@@ -16,6 +16,17 @@ public partial class App : Application
     /// <summary>The composition root, available to every page.</summary>
     public AppServices Services { get; private set; } = null!;
 
+    /// <summary>
+    /// The UI thread's dispatcher.
+    /// </summary>
+    /// <remarks>
+    /// WinUI's <c>Application</c> has no <c>DispatcherQueue</c> property, so it is
+    /// captured from the main window once it exists. Background threads (the
+    /// privacy monitor's registry watchers, the notification callback) use this to
+    /// marshal onto the UI thread. It is null only before the window is created.
+    /// </remarks>
+    public Microsoft.UI.Dispatching.DispatcherQueue? UiDispatcher { get; private set; }
+
     /// <summary>The main window, or null before it is created.</summary>
     public MainWindow? MainWindow => _window;
 
@@ -38,6 +49,10 @@ public partial class App : Application
 
         // Notification registration must happen before the first alert is raised.
         Services.PrivacyNotifier.Initialize();
+
+        // Capture the UI dispatcher before anything can raise an event that needs
+        // to marshal onto the UI thread.
+        UiDispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
 
         _window = new MainWindow(Services);
         _window.Activate();

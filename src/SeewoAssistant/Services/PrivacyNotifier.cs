@@ -80,7 +80,7 @@ public sealed class PrivacyNotifier : IPrivacyNotifier, IDisposable
     {
         // Clicking the toast brings the window forward. Marshalled to the UI thread
         // because the notification callback arrives on a background thread.
-        App.Current?.DispatcherQueue.TryEnqueue(() => App.Current?.ShowMainWindow());
+        App.Current?.UiDispatcher?.TryEnqueue(() => App.Current?.ShowMainWindow());
     }
 
     public Task NotifyAsync(PrivacyUsageEvent usageEvent, CancellationToken cancellationToken = default)
@@ -138,7 +138,11 @@ public sealed class PrivacyNotifier : IPrivacyNotifier, IDisposable
 
             if (Settings.PrivacyPlaySound)
             {
-                builder.SetAudioEvent(AppNotificationSoundEvent.Alert);
+                // AppNotificationSoundEvent has no "Alert" member. The available
+                // values are Alarm, Call, Default, IM, Mail, Reminder and SMS (plus
+                // numbered Alarm/Call variants). Alarm is the urgent one, which is
+                // what a camera or microphone alert warrants.
+                builder.SetAudioEvent(AppNotificationSoundEvent.Alarm);
             }
 
             AppNotificationManager.Default.Show(builder.BuildNotification());
@@ -153,7 +157,7 @@ public sealed class PrivacyNotifier : IPrivacyNotifier, IDisposable
     private void ShowBanner(PrivacyUsageEvent usageEvent)
     {
         // A banner must be created on the UI thread.
-        App.Current?.DispatcherQueue.TryEnqueue(() =>
+        App.Current?.UiDispatcher?.TryEnqueue(() =>
         {
             try
             {

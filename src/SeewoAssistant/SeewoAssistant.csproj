@@ -48,6 +48,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- StatusSeverity and the AppServices graph are referenced by every page and
+         by the shell, so the namespaces are imported once here rather than
+         repeated in every file. The Core model types (CaptureProtectionMode,
+         PrivacyUsageEvent, ScheduledAction) are used the same way. -->
+    <Using Include="SeewoAssistant.Services" />
+    <Using Include="SeewoAssistant.Core.Models" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Include="Assets\app.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
