@@ -558,33 +558,54 @@ jobs:
         shell: pwsh
         run: |
           $setup = 'artifacts/app/SeewoVirtualCamera.Setup.exe'
+          $rawFile = Join-Path $env:RUNNER_TEMP 'setup-output.bin'
 
-          # The tool writes UTF-8 when its output is redirected. PowerShell 7 needs
-          # to be told that, otherwise it decodes the bytes as the legacy ANSI code
-          # page and every Chinese character becomes mojibake - which would look
-          # exactly like the bug this step exists to catch.
-          $previousEncoding = [Console]::OutputEncoding
-          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+          # The raw bytes are captured straight to a file with Start-Process, then
+          # read back with an explicit encoding. Capturing through PowerShell's own
+          # pipeline (`& $setup ... | Out-String`) makes the result depend on
+          # [Console]::OutputEncoding and on $OutputEncoding, and setting those does
+          # not reliably change how a native command's stdout is decoded - which is
+          # precisely the confusion this check exists to remove. Going through a file
+          # tests the tool's actual bytes and nothing else.
+          $process = Start-Process -FilePath $setup -ArgumentList 'list' `
+            -RedirectStandardOutput $rawFile -NoNewWindow -Wait -PassThru
 
-          try {
-            $output = & $setup list 2>&1 | Out-String
-          }
-          finally {
-            [Console]::OutputEncoding = $previousEncoding
-          }
+          Write-Host "安装工具退出码：$($process.ExitCode)"
 
-          Write-Host $output
+          $bytes = [System.IO.File]::ReadAllBytes($rawFile)
+          Write-Host "输出字节数：$($bytes.Length)"
 
           $problems = @()
 
-          if ($output -match "\x00") {
+          # A NUL byte means the tool wrote UTF-16 to a redirected stream, which is
+          # the specific defect this check was added for.
+          if ($bytes -contains 0) {
             $problems += '输出中出现了 NUL 字节（说明用了 UTF-16 写入重定向流）'
           }
-          if ($output -notmatch '[\u4e00-\u9fff]') {
-            $problems += '输出中没有找到任何中文字符，编码很可能不对'
+
+          # Decode strictly: invalidUTF-8 sequences become U+FFFD, so a wrong
+          # encoding shows up as replacement characters rather than passing silently.
+          $strict = [System.Text.UTF8Encoding]::new($false, $true)
+          $output = $null
+
+          try {
+            $output = $strict.GetString($bytes)
           }
-          if ($output -notmatch '视频输入设备') {
-            $problems += '输出中缺少预期标题「视频输入设备」'
+          catch {
+            $problems += '输出不是合法的 UTF-8'
+          }
+
+          if ($null -ne $output) {
+            Write-Host '--- 输出内容 ---'
+            Write-Host $output
+            Write-Host '----------------'
+
+            if ($output -notmatch '[\u4e00-\u9fff]') {
+              $problems += '输出中没有找到任何中文字符，编码很可能不对'
+            }
+            if ($output -notmatch '视频输入设备') {
+              $problems += '输出中缺少预期标题「视频输入设备」'
+            }
           }
 
           if ($problems.Count -gt 0) {
@@ -593,7 +614,7 @@ jobs:
             exit 1
           }
 
-          Write-Host '安装工具输出可正常读取。' -ForegroundColor Green
+          Write-Host '安装工具输出为合法 UTF-8，且内容符合预期。' -ForegroundColor Green
 
       - name: Report the virtual camera state
         if: always()
