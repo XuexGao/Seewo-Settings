@@ -27,6 +27,13 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
 
+    # Creating a Release and uploading its assets needs write access to repository
+    # contents. GITHUB_TOKEN defaults to read-only, which is what produced
+    # "403 Resource not accessible by integration" from the release step. The
+    # permission is scoped to this job and limited to what the release needs.
+    permissions:
+      contents: write
+
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -433,12 +440,27 @@ jobs:
 
       # ------------------------------------------------------------------ release
 
+      # Builds on a tag always produce the archives as an artifact even if the
+      # Release itself cannot be created, so the downloadable output never depends
+      # on the release step succeeding. Release notes are supplied explicitly
+      # rather than generated, because generating them needs an extra API call and
+      # permission that a tag push does not always carry.
       - name: Create a GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/dist/*.zip
-          generate_release_notes: true
+          name: 希沃助手 ${{ github.ref_name }}
+          body: |
+            从下方 Assets 下载 `SeewoAssistant-win-x64.zip`，解压后双击
+            `SeewoAssistant.exe` 即可运行，无需安装 .NET 运行时或 Windows App SDK 运行时。
+
+            首次使用虚拟摄像头需要以管理员身份运行 `scripts\Install-Native.ps1 -Action Install`
+            注册原生组件。详见压缩包内的 README.md。
+
+            **系统要求：** Windows 10 版本 2004（内部版本 19041）或更高，x64。
+            Windows 11 使用官方虚拟摄像头 API；Windows 10 使用 DirectShow 回退方案，
+            摄像头不会出现在系统「设置」的相机列表中，但 Zoom、OBS、ffmpeg 等应用可以使用。
           draft: false
           prerelease: false
         env:
