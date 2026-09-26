@@ -19,6 +19,7 @@
 #include "SeewoFrameSource.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 
 namespace seewo {

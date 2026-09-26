@@ -71,17 +71,16 @@
             Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
             Label="LocalAppDataPlatform" />
   </ImportGroup>
-
-  <!--
-    Output goes to <repo root>\artifacts\native\<platform>\<configuration>.
-    SolutionDir is used when building through the .sln, but MSBuild leaves it
-    empty or set to *Undefined* when a .vcxproj is built directly, which is how
-    CI invokes it. Falling back to this project's grandparent directory gives the
-    repository root in both cases, so the output layout is identical either way.
-  -->
   <PropertyGroup>
-    <RepoRoot Condition="'$(SolutionDir)'!='' and '$(SolutionDir)'!='*Undefined*'">$(SolutionDir)</RepoRoot>
-    <RepoRoot Condition="'$(RepoRoot)'==''">$(MSBuildProjectDirectory)\..\..\</RepoRoot>
+    <!-- The repository root is always two levels up from this project, which
+         lives at <repo>
+ative\<Project>. Deriving it from the project
+         directory rather than SolutionDir is deliberate: MSBuild sets
+         SolutionDir to the *project* directory when a .vcxproj is built
+         directly, which would silently redirect the output into
+         native\<Project>rtifacts instead of the repository artifacts
+         folder that CI collects. -->
+    <RepoRoot>$(MSBuildProjectDirectory)\..\..\</RepoRoot>
   </PropertyGroup>
 
   <PropertyGroup>

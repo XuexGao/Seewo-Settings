@@ -51,13 +51,16 @@
   <ImportGroup Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
-
-  <!-- $(SolutionDir) is empty when msbuild is invoked on the .vcxproj directly,
-       which is how CI builds this. Falling back to the grandparent directory
-       yields the repository root in both invocation styles. -->
   <PropertyGroup>
-    <RepoRoot Condition="'$(SolutionDir)'!='' and '$(SolutionDir)'!='*Undefined*'">$(SolutionDir)</RepoRoot>
-    <RepoRoot Condition="'$(RepoRoot)'==''">$(MSBuildProjectDirectory)\..\..\</RepoRoot>
+    <!-- The repository root is always two levels up from this project, which
+         lives at <repo>
+ative\<Project>. Deriving it from the project
+         directory rather than SolutionDir is deliberate: MSBuild sets
+         SolutionDir to the *project* directory when a .vcxproj is built
+         directly, which would silently redirect the output into
+         native\<Project>rtifacts instead of the repository artifacts
+         folder that CI collects. -->
+    <RepoRoot>$(MSBuildProjectDirectory)\..\..\</RepoRoot>
   </PropertyGroup>
 
   <PropertyGroup>

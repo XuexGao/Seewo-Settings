@@ -151,6 +151,24 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
+          # List whatever the native projects actually produced before checking the
+          # expected paths. If a project's OutDir ever drifts, this makes the real
+          # location obvious in the log instead of leaving a bare "missing" message.
+          Write-Host '实际产出的原生文件：'
+          $found = Get-ChildItem -Path . -Recurse -Include '*.dll', '*.exe' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\artifacts\\' -and $_.FullName -notmatch '\\obj\\' }
+
+          if ($found) {
+            $found | ForEach-Object {
+              Write-Host "  $($_.FullName.Replace($PWD.Path, '')) ($($_.Length) bytes)"
+            }
+          } else {
+            Write-Host '  （没有找到任何产物）'
+          }
+
+          Write-Host ''
+          Write-Host '检查预期路径：'
+
           $expected = @(
             @{ Name = 'Media Foundation 虚拟摄像头'; Path = 'artifacts/native/x64/Release/SeewoVirtualCamera.dll' },
             @{ Name = 'DirectShow 虚拟摄像头 (x64)';  Path = 'artifacts/native/x64/Release/SeewoVirtualCamera.DShow.dll' },
