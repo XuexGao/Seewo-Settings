@@ -417,6 +417,19 @@ function Assert-BannerHasText {
     }
 }
 
+# Finds a single element by its automation name, searching the whole subtree.
+function Find-ByName {
+    param(
+        [System.Windows.Automation.AutomationElement]$Window,
+        [string]$Name
+    )
+
+    $condition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::NameProperty, $Name)
+
+    return $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+}
+
 function Find-ByAutomationId {
     param(
         [System.Windows.Automation.AutomationElement]$Window,
@@ -909,101 +922,119 @@ foreach ($entry in $interactionPlan) {
 
     Start-Sleep -Seconds 2
 
-    # Buttons whose handler stops the pump must be clicked before the ones that start
-    # it, otherwise the start button is already disabled by the time the sweep reaches
-    # it and its code never runs. That is how 测试摄像头 escaped this check: pushing a
-    # solid colour starts the pump, which disables the test-pattern button.
-    $buttons = @(Get-SafeButtons -Window $window | Sort-Object -Property @{
-        Expression = {
-            switch -Wildcard ($_.Current.Name) {
-                '停止推送*' { 0 }
-                '*测试画面*' { 1 }
-                default     { 2 }
-            }
-        }
-    })
-
-    if ($buttons.Count -eq 0) {
-        Write-Host "   「$($entry.Page)」没有可安全点击的按钮。"
-        continue
-    }
-
+    # Work from a list of names and re-query each control immediately before clicking
+    # it, rather than holding a collection of elements. Scrolling to reach one control
+    # invalidates the cached references to the rest, which silently reduced this sweep
+    # from 50 clicks to 27.
+    #
+    # Stop-before-start ordering matters: pushing a solid colour starts the frame pump,
+    # and starting the pump disables the test-pattern button. Clicking the colour first
+    # is how 测试摄像头 escaped this check entirely.
     $pageClicked = 0
     $clickedNames = @()
 
-    foreach ($button in $buttons) {
-        if ($process.HasExited) {
-            Write-Fail "点击「$($entry.Page)」上的按钮时应用崩溃了。"
-            break
-        }
+    # Bounded so a page that keeps adding controls cannot loop forever.
+    for ($pass = 0; $pass -lt 4; $pass++) {
+        if ($process.HasExited) { break }
 
-        # Re-read the name: scrolling virtualises list content, so an element captured
-        # before the scroll can point at a recycled container whose name is now empty.
-        # Invoking that raises 'Unsupported Pattern' for a reason unrelated to the page.
-        $name = $button.Current.Name
+        $candidates = @(Get-SafeButtons -Window $window |
+            Where-Object { $clickedNames -notcontains $_.Current.Name } |
+            Sort-Object -Property @{
+                Expression = {
+                    switch -Wildcard ($_.Current.Name) {
+                        '停止推送*' { 0 }
+                        '*测试画面*' { 1 }
+                        default     { 2 }
+                    }
+                }
+            })
 
-        if ([string]::IsNullOrWhiteSpace($name)) {
-            continue
-        }
+        if ($candidates.Count -eq 0) { break }
 
-        # Some handlers do real work - enumerating windows, scanning the filesystem,
-        # probing every subsystem - and need longer than others. Waiting a fixed short
-        # time would let the next click land while the previous one is still running,
-        # which produces confusing failures.
-        $waitMs = 1200
+        foreach ($candidate in $candidates) {
+            if ($process.HasExited) { break }
 
-        foreach ($slow in @('开始扫描', '扫描开机自启项', '运行自检', '刷新窗口列表',
-                            '刷新运行中的进程', '刷新状态', '刷新', '立即执行一次',
-                            '测试提醒', '保护本程序窗口', '取消保护')) {
-            if ($name -eq $slow) {
-                $waitMs = 6000
-                break
+            $name = $candidate.Current.Name
+
+            if ([string]::IsNullOrWhiteSpace($name) -or $clickedNames -contains $name) {
+                continue
             }
-        }
 
-        try {
-            # A control can support either pattern. ToggleSwitch - used for every
-            # setting on these pages - exposes TogglePattern, not InvokePattern, so
-            # without this branch all the toggles were silently skipped.
-            $invoked = $false
+            # Re-query by name: the element captured a moment ago may already be stale.
+            $button = Find-ByName -Window $window -Name $name
 
+            if ($null -eq $button) { continue }
+
+            # Bring it into view, since most page content starts below the fold on the
+            # small CI desktop.
             try {
-                $toggle = $button.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
-                $toggle.Toggle()
-                $invoked = $true
+                $scrollItem = $button.GetCurrentPattern(
+                    [System.Windows.Automation.ScrollItemPattern]::Pattern)
+                $scrollItem.ScrollIntoView()
+                Start-Sleep -Milliseconds 250
+
+                # Scrolling can move it, so look it up once more.
+                $button = Find-ByName -Window $window -Name $name
+                if ($null -eq $button) { continue }
             }
             catch {
-                $invoke = $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-                $invoke.Invoke()
-                $invoked = $true
+                # Not every control supports ScrollItemPattern.
             }
 
-            if (-not $invoked) { continue }
+            # Some handlers do real work - enumerating windows, scanning the
+            # filesystem, probing every subsystem - and need longer than others.
+            $waitMs = 1200
 
-            $pageClicked++
-            $clickedTotal++
-            $clickedNames += $name
+            foreach ($slow in @('开始扫描', '扫描开机自启项', '运行自检', '刷新窗口列表',
+                                '刷新运行中的进程', '刷新状态', '立即执行一次',
+                                '测试提醒', '保护本窗口', '保护选中窗口')) {
+                if ($name -eq $slow) {
+                    $waitMs = 6000
+                    break
+                }
+            }
 
-            Start-Sleep -Milliseconds $waitMs
-
-            # A click can open a dialog, move focus, or replace the page content.
-            # Restore the window and re-acquire the element so the next lookup in this
-            # loop is not defeated by either.
             try {
-                [NativeCapture]::ShowWindow($process.MainWindowHandle, [NativeCapture]::SW_RESTORE) | Out-Null
-                [NativeCapture]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
-            }
-            catch { }
+                # A control can support either pattern. ToggleSwitch - used for every
+                # setting on these pages - exposes TogglePattern, not InvokePattern.
+                $invoked = $false
 
-            $refreshed = Get-AppWindow -ProcessId $process.Id
-            if ($null -ne $refreshed) { $window = $refreshed }
-        }
-        catch {
-            Write-Warn "无法点击「$($entry.Page)」上的「$name」：$($_.Exception.Message)"
+                try {
+                    $toggle = $button.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+                    $toggle.Toggle()
+                    $invoked = $true
+                }
+                catch {
+                    $invoke = $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                    $invoke.Invoke()
+                    $invoked = $true
+                }
+
+                if (-not $invoked) { continue }
+
+                $pageClicked++
+                $clickedTotal++
+                $clickedNames += $name
+
+                Start-Sleep -Milliseconds $waitMs
+
+                # A click can open a dialog, move focus, or replace the page content.
+                try {
+                    [NativeCapture]::ShowWindow($process.MainWindowHandle, [NativeCapture]::SW_RESTORE) | Out-Null
+                    [NativeCapture]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
+                }
+                catch { }
+
+                $refreshed = Get-AppWindow -ProcessId $process.Id
+                if ($null -ne $refreshed) { $window = $refreshed }
+            }
+            catch {
+                Write-Warn "无法点击「$($entry.Page)」上的「$name」：$($_.Exception.Message)"
+            }
         }
     }
 
-    Write-Pass "「$($entry.Page)」：点击了 $pageClicked 个按钮，应用仍然存活。"
+    Write-Pass "「$($entry.Page)」：点击了 $pageClicked 个控件，应用仍然存活。"
 
     if ($clickedNames.Count -gt 0) {
         Write-Host "      已点击：$($clickedNames -join '、')"
