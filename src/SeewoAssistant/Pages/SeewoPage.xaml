@@ -131,6 +131,7 @@
                                                   OnContent=""
                                                   OffContent=""
                                                   MinWidth="0"
+                                                  AutomationProperties.Name="{Binding Name}"
                                                   Toggled="OnRuleToggled" />
 
                                     <StackPanel Grid.Column="1" Spacing="2">
@@ -188,6 +189,7 @@
 
                     <ToggleSwitch x:Name="NewRuleAutoApplyToggle"
                                   Header="自动应用"
+                                  AutomationProperties.Name="自动应用"
                                   OnContent="匹配到就自动处理"
                                   OffContent="仅手动处理" />
                 </StackPanel>
@@ -364,6 +366,7 @@
                                                   OnContent=""
                                                   OffContent=""
                                                   MinWidth="0"
+                                                  AutomationProperties.Name="{Binding Name}"
                                                   Toggled="OnStartupToggled" />
 
                                     <StackPanel Grid.Column="1" Spacing="2">

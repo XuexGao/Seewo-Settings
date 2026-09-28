@@ -112,6 +112,7 @@
 
                     <ToggleSwitch x:Name="CrossProcessToggle"
                                   Header="开启跨进程注入"
+                                  AutomationProperties.Name="开启跨进程注入"
                                   OnContent="已开启"
                                   OffContent="已关闭"
                                   Toggled="OnCrossProcessToggled" />

@@ -87,12 +87,14 @@
 
                     <ToggleSwitch x:Name="MonitorCameraToggle"
                                   Header="监控摄像头"
+                                  AutomationProperties.Name="监控摄像头"
                                   OnContent="已开启"
                                   OffContent="已关闭"
                                   Toggled="OnMonitorCameraToggled" />
 
                     <ToggleSwitch x:Name="MonitorMicrophoneToggle"
                                   Header="监控麦克风"
+                                  AutomationProperties.Name="监控麦克风"
                                   OnContent="已开启"
                                   OffContent="已关闭"
                                   Toggled="OnMonitorMicrophoneToggled" />
@@ -100,6 +102,7 @@
                     <StackPanel Spacing="4">
                         <ToggleSwitch x:Name="ResolveProcessIdsToggle"
                                       Header="尝试解析进程 ID（需要管理员权限）"
+                                      AutomationProperties.Name="尝试解析进程 ID（需要管理员权限）"
                                       OnContent="已开启"
                                       OffContent="已关闭"
                                       Toggled="OnResolveProcessIdsToggled" />
@@ -111,6 +114,7 @@
 
                     <ToggleSwitch x:Name="ShowToastToggle"
                                   Header="弹出系统通知"
+                                  AutomationProperties.Name="弹出系统通知"
                                   OnContent="已开启"
                                   OffContent="已关闭"
                                   Toggled="OnShowToastToggled" />
@@ -118,6 +122,7 @@
                     <StackPanel Spacing="4">
                         <ToggleSwitch x:Name="ShowBannerToggle"
                                       Header="显示屏幕横幅"
+                                      AutomationProperties.Name="显示屏幕横幅"
                                       OnContent="已开启"
                                       OffContent="已关闭"
                                       Toggled="OnShowBannerToggled" />
@@ -127,6 +132,7 @@
 
                     <ToggleSwitch x:Name="PlaySoundToggle"
                                   Header="播放提示音"
+                                  AutomationProperties.Name="播放提示音"
                                   OnContent="已开启"
                                   OffContent="已关闭"
                                   Toggled="OnPlaySoundToggled" />
@@ -143,6 +149,7 @@
 
                     <ToggleSwitch x:Name="AutoStartToggle"
                                   Header="随程序启动自动开启监控"
+                                  AutomationProperties.Name="随程序启动自动开启监控"
                                   OnContent="已开启"
                                   OffContent="已关闭"
                                   Toggled="OnAutoStartToggled" />

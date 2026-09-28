@@ -97,7 +97,7 @@
                         </StackPanel>
 
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                            <ToggleSwitch x:Name="AutoScrollToggle" OnContent="自动滚动" OffContent="自动滚动" IsOn="True" />
+                            <ToggleSwitch x:Name="AutoScrollToggle" OnContent="自动滚动" OffContent="自动滚动" IsOn="True" AutomationProperties.Name="自动滚动日志" />
                             <Button x:Name="RefreshLogButton" Click="OnRefreshLog" Content="刷新" />
                             <Button x:Name="ClearLogButton" Click="OnClearLog" Content="清空显示" />
                             <Button x:Name="OpenLogFolderButton" Click="OnOpenLogFolder" Content="打开日志文件夹" />

@@ -49,6 +49,7 @@
                                                   OnContent=""
                                                   OffContent=""
                                                   MinWidth="0"
+                                                  AutomationProperties.Name="{Binding Name}"
                                                   Toggled="OnTaskToggled" />
 
                                     <StackPanel Grid.Column="1" Spacing="3">

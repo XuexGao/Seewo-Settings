@@ -21,6 +21,7 @@
 
                     <ToggleSwitch x:Name="RunAtStartupToggle"
                                   Header="开机自动启动"
+                                  AutomationProperties.Name="开机自动启动"
                                   OnContent="已开启"
                                   OffContent="已关闭" />
 
@@ -30,11 +31,13 @@
 
                     <ToggleSwitch x:Name="StartMinimizedToggle"
                                   Header="启动时最小化到托盘"
+                                  AutomationProperties.Name="启动时最小化到托盘"
                                   OnContent="已开启"
                                   OffContent="已关闭" />
 
                     <ToggleSwitch x:Name="FollowSystemThemeToggle"
                                   Header="跟随系统深色/浅色主题"
+                                  AutomationProperties.Name="跟随系统深色/浅色主题"
                                   OnContent="已开启"
                                   OffContent="已关闭" />
                 </StackPanel>
@@ -66,19 +69,21 @@
 
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="16">
-                    <ToggleSwitch x:Name="MonitorCameraToggle" Header="监控摄像头" OnContent="已开启" OffContent="已关闭" />
-                    <ToggleSwitch x:Name="MonitorMicrophoneToggle" Header="监控麦克风" OnContent="已开启" OffContent="已关闭" />
-                    <ToggleSwitch x:Name="PrivacyAutoStartToggle" Header="随程序启动自动开启监控" OnContent="已开启" OffContent="已关闭" />
+                    <ToggleSwitch x:Name="MonitorCameraToggle" Header="监控摄像头" OnContent="已开启" OffContent="已关闭" AutomationProperties.Name="监控摄像头" />
+                    <ToggleSwitch x:Name="MonitorMicrophoneToggle" Header="监控麦克风" OnContent="已开启" OffContent="已关闭" AutomationProperties.Name="监控麦克风" />
+                    <ToggleSwitch x:Name="PrivacyAutoStartToggle" Header="随程序启动自动开启监控" OnContent="已开启" OffContent="已关闭" AutomationProperties.Name="随程序启动自动开启监控" />
                     <ToggleSwitch x:Name="ResolvePidsToggle"
                                   Header="精确归因进程（需要管理员权限）"
+                                  AutomationProperties.Name="精确归因进程（需要管理员权限）"
                                   OnContent="已开启"
                                   OffContent="已关闭" />
-                    <ToggleSwitch x:Name="ShowToastToggle" Header="显示系统通知" OnContent="已开启" OffContent="已关闭" />
+                    <ToggleSwitch x:Name="ShowToastToggle" Header="显示系统通知" OnContent="已开启" OffContent="已关闭" AutomationProperties.Name="显示系统通知" />
                     <ToggleSwitch x:Name="ShowBannerToggle"
                                   Header="显示醒目横幅（不受专注助手影响）"
+                                  AutomationProperties.Name="显示醒目横幅（不受专注助手影响）"
                                   OnContent="已开启"
                                   OffContent="已关闭" />
-                    <ToggleSwitch x:Name="PlaySoundToggle" Header="播放提示音" OnContent="已开启" OffContent="已关闭" />
+                    <ToggleSwitch x:Name="PlaySoundToggle" Header="播放提示音" OnContent="已开启" OffContent="已关闭" AutomationProperties.Name="播放提示音" />
 
                     <NumberBox x:Name="BannerSecondsBox"
                                Header="横幅显示时长（秒）"
@@ -134,6 +139,7 @@
 
                     <ToggleSwitch x:Name="AllowCrossProcessToggle"
                                   Header="允许跨进程注入（默认关闭）"
+                                  AutomationProperties.Name="允许跨进程注入（默认关闭）"
                                   OnContent="已开启"
                                   OffContent="已关闭"
                                   Toggled="OnAllowCrossProcessToggled" />

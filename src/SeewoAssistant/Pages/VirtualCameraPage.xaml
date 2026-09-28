@@ -214,6 +214,7 @@
 
                     <ToggleSwitch x:Name="AutoStartToggle"
                                   Header="随程序启动自动推送"
+                                  AutomationProperties.Name="随程序启动自动推送"
                                   OnContent="已开启"
                                   OffContent="已关闭"
                                   Toggled="OnAutoStartToggled" />
