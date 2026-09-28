@@ -417,7 +417,11 @@ function Assert-BannerHasText {
     }
 }
 
-# Finds a single element by its automation name, searching the whole subtree.
+# Finds a single element by its automation name within a given root.
+#
+# Callers should pass the content frame rather than the window: the navigation pane
+# contains items whose names collide with page content (the settings entry is named
+# "设置"), and searching from the window returns the navigation item first.
 function Find-ByName {
     param(
         [System.Windows.Automation.AutomationElement]$Window,
@@ -441,6 +445,19 @@ function Find-ByAutomationId {
 
     return $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
 }
+
+# Returns the frame that hosts the page content, so lookups can be scoped to it.
+function Get-ContentRoot {
+    param([System.Windows.Automation.AutomationElement]$Window)
+
+    # The Frame is a named element; fall back to the window when it cannot be found.
+    $frame = Find-ByAutomationId -Window $Window -AutomationId 'ContentFrame'
+
+    if ($null -ne $frame) { return $frame }
+
+    return $Window
+}
+
 
 # ---------------------------------------------------------------------- main
 
@@ -734,6 +751,12 @@ $unsafeButtons = @(
     # Window chrome and navigation pane: not page functionality, and Close hides the
     # app to the tray, which ends that page's turn.
     'Minimize', 'Maximize', 'Restore', 'Close', 'Close Navigation', 'Open Navigation',
+
+    # The navigation items themselves. These matter: the settings entry is named "设置",
+    # the same as controls on the settings page, and a by-name lookup returns the
+    # navigation item first. Clicking it navigated away from the page under test, so
+    # every page silently exercised the Settings page instead.
+    '虚拟摄像头', '隐私监控', '防截屏保护', '希沃软件', '定时任务', '日志与诊断', '设置',
     # Opens a modal dialog or an external window that then covers the app and breaks
     # every later lookup.
     '新建任务', '添加动作', '保存任务', '取消', '确定',
@@ -937,7 +960,9 @@ foreach ($entry in $interactionPlan) {
     for ($pass = 0; $pass -lt 4; $pass++) {
         if ($process.HasExited) { break }
 
-        $candidates = @(Get-SafeButtons -Window $window |
+        $contentRoot = Get-ContentRoot -Window $window
+
+        $candidates = @(Get-SafeButtons -Window $contentRoot |
             Where-Object { $clickedNames -notcontains $_.Current.Name } |
             Sort-Object -Property @{
                 Expression = {
@@ -961,7 +986,7 @@ foreach ($entry in $interactionPlan) {
             }
 
             # Re-query by name: the element captured a moment ago may already be stale.
-            $button = Find-ByName -Window $window -Name $name
+            $button = Find-ByName -Window $contentRoot -Name $name
 
             if ($null -eq $button) { continue }
 
@@ -974,7 +999,7 @@ foreach ($entry in $interactionPlan) {
                 Start-Sleep -Milliseconds 250
 
                 # Scrolling can move it, so look it up once more.
-                $button = Find-ByName -Window $window -Name $name
+                $button = Find-ByName -Window $contentRoot -Name $name
                 if ($null -eq $button) { continue }
             }
             catch {
