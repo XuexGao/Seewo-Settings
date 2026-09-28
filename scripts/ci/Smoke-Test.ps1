@@ -424,7 +424,7 @@ if (Invoke-NavigationItem -Window $window -Name '隐私监控') {
     foreach ($toggle in $toggles) {
         $name = $toggle.Current.Name
 
-        if ($name -like '显示醒目横幅*') {
+        if ($name -like '显示屏幕横幅*') {
             try {
                 $pattern = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
 
@@ -433,7 +433,7 @@ if (Invoke-NavigationItem -Window $window -Name '隐私监控') {
                     Start-Sleep -Milliseconds 600
                 }
 
-                Write-Pass "已开启「显示醒目横幅」，横幅窗口会被创建。"
+                Write-Pass "已开启「显示屏幕横幅」，横幅窗口会被创建。"
                 $enabledBanner = $true
             }
             catch {
@@ -445,29 +445,34 @@ if (Invoke-NavigationItem -Window $window -Name '隐私监控') {
     }
 
     if (-not $enabledBanner) {
-        Write-Warn '没有找到「显示醒目横幅」开关，横幅代码路径不会被验证。'
+        Write-Warn '没有找到「显示屏幕横幅」开关，横幅代码路径不会被验证。'
     }
 
     # This raises a sample alert, which is what creates and paints the banner.
-    foreach ($button in (Get-SafeButtons -Window $window)) {
-        if ($button.Current.Name -eq '测试提醒') {
-            try {
-                $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-                Write-Pass '已点击「测试提醒」，横幅应该已经出现。'
+    $alertCondition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::NameProperty, '测试提醒')
 
-                # The banner dismisses itself after a few seconds; wait long enough to
-                # cover its whole lifetime so a crash on dismissal is caught.
-                Start-Sleep -Seconds 8
+    $alertButton = $window.FindFirst(
+        [System.Windows.Automation.TreeScope]::Descendants, $alertCondition)
 
-                Save-ScreenRegion -Path (Join-Path $OutputDirectory '18-banner.png') `
-                    -X 0 -Y 0 -Width $screenWidth -Height $screenHeight | Out-Null
-            }
-            catch {
-                Write-Warn "无法点击「测试提醒」：$($_.Exception.Message)"
-            }
+    if ($null -ne $alertButton) {
+        try {
+            $alertButton.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            Write-Pass '已点击「测试提醒」，横幅应该已经出现。'
 
-            break
+            # The banner dismisses itself after a few seconds; wait out its whole
+            # lifetime so a crash on dismissal is caught rather than missed.
+            Start-Sleep -Seconds 8
+
+            Save-ScreenRegion -Path (Join-Path $OutputDirectory '18-banner.png') `
+                -X 0 -Y 0 -Width $screenWidth -Height $screenHeight | Out-Null
         }
+        catch {
+            Write-Warn "无法点击「测试提醒」：$($_.Exception.Message)"
+        }
+    }
+    else {
+        Write-Warn '没有找到「测试提醒」按钮。'
     }
 
     if ($process.HasExited) {
