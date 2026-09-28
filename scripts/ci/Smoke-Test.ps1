@@ -499,9 +499,17 @@ $unsafeButtons = @(
 function Get-SafeButtons {
     param([System.Windows.Automation.AutomationElement]$Window)
 
-    $condition = New-Object System.Windows.Automation.PropertyCondition(
+    # Include check boxes and toggles as well as buttons: the settings pages express
+    # almost everything as a ToggleSwitch, and a sweep that only clicked Buttons would
+    # leave the entire settings surface untested.
+    $isButton = New-Object System.Windows.Automation.PropertyCondition(
         [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
         [System.Windows.Automation.ControlType]::Button)
+    $isCheckBox = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::CheckBox)
+
+    $condition = New-Object System.Windows.Automation.OrCondition($isButton, $isCheckBox)
 
     $buttons = $Window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
     $result = @()
@@ -615,8 +623,24 @@ foreach ($entry in $interactionPlan) {
         }
 
         try {
-            $pattern = $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-            $pattern.Invoke()
+            # A control can support either pattern. ToggleSwitch - used for every
+            # setting on these pages - exposes TogglePattern, not InvokePattern, so
+            # without this branch all the toggles were silently skipped.
+            $invoked = $false
+
+            try {
+                $toggle = $button.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+                $toggle.Toggle()
+                $invoked = $true
+            }
+            catch {
+                $invoke = $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                $invoke.Invoke()
+                $invoked = $true
+            }
+
+            if (-not $invoked) { continue }
+
             $pageClicked++
             $clickedTotal++
 
