@@ -82,7 +82,6 @@ public sealed class SeewoControlService
         "SeewoPcManager.exe",
         "EasiCare.exe",
         "SeewoCamera.exe",
-        "SeewoAssistant.exe",
         "SWProxy.exe",
         "SWUpdate.exe",
     ];
@@ -154,6 +153,11 @@ public sealed class SeewoControlService
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // Our own executable is named SeewoAssistant, so it matches the "seewo" keyword
+        // and used to be reported as a discovered Seewo component - offering to suspend
+        // or terminate this very application. Exclude it explicitly.
+        var ownName = GetOwnProcessName();
+
         var candidates = new List<string>();
 
         candidates.AddRange(FindExecutablesFromRegistry());
@@ -176,6 +180,15 @@ public sealed class SeewoControlService
             }
 
             if (string.IsNullOrWhiteSpace(fileName) || !seenNames.Add(fileName))
+            {
+                continue;
+            }
+
+            // Never list ourselves.
+            if (string.Equals(
+                    Path.GetFileNameWithoutExtension(fileName),
+                    ownName,
+                    StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -212,6 +225,24 @@ public sealed class SeewoControlService
 
         _logger.Info($"Seewo discovery found {rules.Count} executable(s).");
         return rules.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// The current process's name, used to keep the application out of its own scan
+    /// results.
+    /// </summary>
+    private static string GetOwnProcessName()
+    {
+        try
+        {
+            return System.Diagnostics.Process.GetCurrentProcess().ProcessName;
+        }
+        catch (Exception)
+        {
+            // Fall back to the assembly name, which is what the process name derives
+            // from in the normal case.
+            return "SeewoAssistant";
+        }
     }
 
     /// <summary>Directory part of a path, or an empty string when it has none.</summary>

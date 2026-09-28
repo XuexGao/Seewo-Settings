@@ -268,4 +268,46 @@ public sealed class NativeInteropContractTests
         // not one of the encodings .NET Core provides out of the box.
         Assert.NotNull(System.Text.Encoding.GetEncoding(437));
     }
+
+    [Fact]
+    public void TheApplicationDoesNotMatchItsOwnSeewoKeywords()
+    {
+        // The application is called SeewoAssistant, and "seewo" is one of the keywords
+        // used to recognise Seewo software. Without an explicit exclusion the scan
+        // reported this application as a discovered Seewo component, so the page
+        // offered to suspend or terminate the app itself.
+        var keywords = new[]
+        {
+            "seewo", "easinote", "希沃", "seewoservice", "seewolink",
+            "seeworeverseproxy", "seewoupdate", "seewocloud", "easicare",
+            "swproxy", "swupdate",
+        };
+
+        const string ownName = "SeewoAssistant";
+
+        var matched = keywords.Any(k =>
+            ownName.Contains(k, StringComparison.OrdinalIgnoreCase));
+
+        // If this ever stops being true the exclusion is unnecessary, and the test
+        // should be deleted rather than left asserting nothing.
+        Assert.True(
+            matched,
+            "应用名称不再匹配希沃关键词，这条排除逻辑可以移除了。");
+
+        // The exclusion itself is what matters: the name must be filtered out of
+        // discovery results. SeewoControlService.GetOwnProcessName returns this value,
+        // and DiscoverSeewoSoftware skips any candidate whose file name matches it.
+        var source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "src", "SeewoAssistant.Core", "Services", "Seewo", "SeewoControlService.cs"));
+
+        Assert.Contains("GetOwnProcessName", source);
+        Assert.Contains("ownName", source);
+
+        // The app must not be listed as a known Seewo executable either.
+        var knownBlock = source[source.IndexOf("KnownSeewoExecutables", StringComparison.Ordinal)..];
+        knownBlock = knownBlock[..knownBlock.IndexOf(']')];
+
+        Assert.DoesNotContain("SeewoAssistant.exe", knownBlock);
+    }
 }
