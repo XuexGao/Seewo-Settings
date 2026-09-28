@@ -696,31 +696,80 @@ Write-Step '逐页交互'
 #
 # The comments are outside the array on purpose - text inside it would be parsed as
 # entries.
+# Controls the sweep must never click, because they change machine state in a way that
+# would take the runner down or cannot be undone in a test run.
+#
+# Everything not listed here IS clicked, so keep this list as short as the risk allows.
+# The read-only scan and refresh buttons are deliberately absent: the Seewo scan not
+# finding anything was one of the reported defects, and excluding its button is what
+# stopped the sweep from ever reproducing it.
+#
+# Grouped by reason. Keep all prose out of the array body: an apostrophe in a comment
+# is harmless to PowerShell, but it makes the list impossible to verify mechanically.
 $unsafeButtons = @(
-    # Power and session - would end the test run.
+    # Power and session state: would end the test run.
     '关机', '重启', '注销', '锁定工作站', '取消待执行的关机',
-
-    # Process control - terminates or freezes real programs.
+    # Process control: terminates or freezes real programs.
     '全部结束', '结束选中', '结束进程', '全部挂起', '挂起选中', '挂起',
-
-    # Destructive, system-wide, or needs admin and is not reversible in a test.
+    # Destructive or system-wide, and not reversible within a test.
     '完全卸载', '移除摄像头', '移除本程序创建的所有防火墙规则',
-    '全部禁用希沃自启', '全部恢复', '恢复选中', '恢复', '保存设置',
-    '删除', '删除该规则', '重置跨进程风险确认', '恢复默认设置',
-    '放弃修改并重新加载',
-
-    # Registration and enumeration - writes to the registry, and the camera is already
-    # exercised through the push buttons.
+    '全部禁用希沃自启', '全部恢复', '恢复选中', '恢复',
+    '保存设置', '恢复默认设置', '放弃修改并重新加载',
+    '删除', '删除该规则', '重置跨进程风险确认',
+    # Writes to the registry; the camera is already covered by the push buttons.
     '一键安装（注册 + 创建）', '创建摄像头实例', '列出系统设备',
-
-    # Opens a modal dialog or an external window, which then covers the app and makes
-    # every later UI Automation lookup fail. A dialog opened this way once broke
-    # navigation to every subsequent page.
+    # Window chrome and navigation pane: not page functionality, and Close hides the
+    # app to the tray, which ends that page's turn.
+    'Minimize', 'Maximize', 'Restore', 'Close', 'Close Navigation', 'Open Navigation',
+    # Opens a modal dialog or an external window that then covers the app and breaks
+    # every later lookup.
     '新建任务', '添加动作', '保存任务', '取消', '确定',
     '浏览…', '运行程序', '打开配置文件', '导出诊断报告',
     '打开配置文件夹', '打开日志文件夹'
 )
 
+
+# Sanity-checks the unsafe list before the sweep relies on it.
+#
+# This list has already gone wrong twice in ways nothing caught: a rewrite dropped the
+# window-chrome entries (so the sweep clicked Close and ended the page's turn), and
+# comment prose inside the array was parsed as entries. Both were only visible by
+# reading a run log closely. The assertions below make either mistake a loud failure.
+function Assert-UnsafeListIsSane {
+    if ($unsafeButtons.Count -lt 20) {
+        Write-Fail "禁用列表只有 $($unsafeButtons.Count) 项，可能被误改。"
+        return
+    }
+
+    $malformed = $unsafeButtons | Where-Object {
+        [string]::IsNullOrWhiteSpace($_) -or $_.Length -gt 40 -or $_.Contains("`n")
+    }
+
+    if ($malformed) {
+        Write-Fail "禁用列表里有异常条目（很可能是注释被当成了字符串）：$($malformed -join ' | ')"
+        return
+    }
+
+    # These must never be clickable.
+    foreach ($required in @('关机', '重启', '全部结束', '全部挂起', 'Minimize', 'Close')) {
+        if ($unsafeButtons -notcontains $required) {
+            Write-Fail "禁用列表缺少「$required」，冒烟测试可能会执行危险操作。"
+            return
+        }
+    }
+
+    # These must stay clickable: each one covers a defect that was reported.
+    foreach ($forbidden in @('开始扫描', '运行自检', '刷新窗口列表', '开始推送测试画面', '推送纯色')) {
+        if ($unsafeButtons -contains $forbidden) {
+            Write-Fail "「$forbidden」被列入了禁用列表，但它对应的功能正是需要被验证的。"
+            return
+        }
+    }
+
+    Write-Pass "禁用列表检查通过（$($unsafeButtons.Count) 项）。"
+}
+
+Assert-UnsafeListIsSane
 
 function Get-SafeButtons {
     param([System.Windows.Automation.AutomationElement]$Window)
@@ -888,7 +937,14 @@ foreach ($entry in $interactionPlan) {
             break
         }
 
+        # Re-read the name: scrolling virtualises list content, so an element captured
+        # before the scroll can point at a recycled container whose name is now empty.
+        # Invoking that raises 'Unsupported Pattern' for a reason unrelated to the page.
         $name = $button.Current.Name
+
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            continue
+        }
 
         # Some handlers do real work - enumerating windows, scanning the filesystem,
         # probing every subsystem - and need longer than others. Waiting a fixed short
