@@ -425,7 +425,13 @@ $unsafeButtons = @(
     '新建任务', '添加动作', '保存任务', '取消', '确定',
     '开始推送测试画面', '停止推送', '推送图片', '推送纯色',
     '保护本程序窗口', '取消保护', '保护选中窗口', '取消保护选中窗口',
-    '一键安装（注册 + 创建）', '创建摄像头实例', '列出系统设备', '刷新'
+    '一键安装（注册 + 创建）', '创建摄像头实例', '列出系统设备', '刷新',
+    # These open an external window or the file picker, which then covers the app and
+    # makes every later UI Automation call fail. One of them launched Notepad over the
+    # window during the first run of this sweep, which is what broke navigation to
+    # every subsequent page.
+    '运行程序', '打开配置文件', '浏览…', '导出诊断报告',
+    '打开配置文件夹', '打开日志文件夹', '复制到剪贴板', '复制全部'
 )
 
 function Get-SafeButtons {
@@ -486,8 +492,20 @@ foreach ($entry in $interactionPlan) {
         break
     }
 
+    # Bring the app back to the foreground before navigating. A click on the previous
+    # page may have opened a dialog or another window; without this the navigation
+    # item is present but obscured, and every later lookup fails for a reason that has
+    # nothing to do with the page being tested.
+    try {
+        [NativeCapture]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
+        Start-Sleep -Milliseconds 400
+    }
+    catch {
+        # Not fatal; the lookup below will report it if the window really is gone.
+    }
+
     if (-not (Invoke-NavigationItem -Window $window -Name $entry.Page)) {
-        Write-Fail "找不到导航项「$($entry.Page)」。"
+        Write-Fail "找不到导航项「$($entry.Page)」（窗口可能被其他窗口遮挡）。"
         continue
     }
 
@@ -510,15 +528,35 @@ foreach ($entry in $interactionPlan) {
 
         $name = $button.Current.Name
 
+        # Some handlers do real work - enumerating windows, scanning the filesystem,
+        # probing every subsystem - and need longer than others. Waiting a fixed short
+        # time would let the next click land while the previous one is still running,
+        # which produces confusing failures.
+        $waitMs = 1200
+
+        foreach ($slow in @('开始扫描', '扫描开机自启项', '运行自检', '刷新窗口列表',
+                            '刷新运行中的进程', '刷新状态', '刷新', '立即执行一次',
+                            '测试提醒', '保护本程序窗口', '取消保护')) {
+            if ($name -eq $slow) {
+                $waitMs = 6000
+                break
+            }
+        }
+
         try {
             $pattern = $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
             $pattern.Invoke()
             $pageClicked++
             $clickedTotal++
 
-            # Give the handler time to run. Long operations (window enumeration, the
-            # self-check, a directory scan) need more than a moment.
-            Start-Sleep -Milliseconds 1200
+            Start-Sleep -Milliseconds $waitMs
+
+            # A click can open a dialog or move focus. Bring the window back so the
+            # next lookup is not defeated by something being on top of it.
+            try {
+                [NativeCapture]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
+            }
+            catch { }
         }
         catch {
             Write-Warn "无法点击「$($entry.Page)」上的「$name」：$($_.Exception.Message)"

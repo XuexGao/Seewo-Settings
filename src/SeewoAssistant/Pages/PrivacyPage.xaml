@@ -64,11 +64,13 @@
                             </StackPanel>
                         </Button>
 
-                        <Button x:Name="StopButton" Click="OnStopMonitor">
+                        <Button x:Name="StopButton" Click="OnStopMonitor"
+                            AutomationProperties.Name="停止监控">
                             <TextBlock Text="停止监控" />
                         </Button>
 
-                        <Button x:Name="RefreshStateButton" Click="OnRefreshState">
+                        <Button x:Name="RefreshStateButton" Click="OnRefreshState"
+                            AutomationProperties.Name="刷新状态">
                             <TextBlock Text="刷新状态" />
                         </Button>
                     </StackPanel>
@@ -160,7 +162,8 @@
                                  Width="360"
                                  PlaceholderText="程序名或完整路径，例如 Teams.exe" />
 
-                        <Button x:Name="AddExclusionButton" Click="OnAddExclusion">
+                        <Button x:Name="AddExclusionButton" Click="OnAddExclusion"
+                            AutomationProperties.Name="添加">
                             <TextBlock Text="添加" />
                         </Button>
                     </StackPanel>

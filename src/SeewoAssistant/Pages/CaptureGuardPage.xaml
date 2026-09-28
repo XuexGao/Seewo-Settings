@@ -54,11 +54,13 @@
                                IsTextSelectionEnabled="True" />
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="ProtectOwnButton" Click="OnProtectOwnWindow" Style="{StaticResource AccentButtonStyle}">
+                        <Button x:Name="ProtectOwnButton" Click="OnProtectOwnWindow" Style="{StaticResource AccentButtonStyle}"
+                            AutomationProperties.Name="保护本程序窗口">
                             <TextBlock Text="保护本程序窗口" />
                         </Button>
 
-                        <Button x:Name="UnprotectOwnButton" Click="OnUnprotectOwnWindow">
+                        <Button x:Name="UnprotectOwnButton" Click="OnUnprotectOwnWindow"
+                            AutomationProperties.Name="取消保护">
                             <TextBlock Text="取消保护" />
                         </Button>
                     </StackPanel>
@@ -193,11 +195,13 @@
                                Text="尚未选择窗口。" />
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="ProtectSelectedButton" Click="OnProtectSelected" IsEnabled="False">
+                        <Button x:Name="ProtectSelectedButton" Click="OnProtectSelected" IsEnabled="False"
+                            AutomationProperties.Name="保护选中窗口">
                             <TextBlock Text="保护选中窗口" />
                         </Button>
 
-                        <Button x:Name="UnprotectSelectedButton" Click="OnUnprotectSelected" IsEnabled="False">
+                        <Button x:Name="UnprotectSelectedButton" Click="OnUnprotectSelected" IsEnabled="False"
+                            AutomationProperties.Name="取消保护">
                             <TextBlock Text="取消保护" />
                         </Button>
                     </StackPanel>
@@ -218,15 +222,18 @@
                                Text="开启后每秒约 10 次读取鼠标指针下方的窗口并实时显示。把鼠标移到目标窗口上，然后点「确定」即可选中它。" />
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="RadarButton" Click="OnToggleRadar" Style="{StaticResource AccentButtonStyle}">
+                        <Button x:Name="RadarButton" Click="OnToggleRadar" Style="{StaticResource AccentButtonStyle}"
+                            AutomationProperties.Name="雷达取景">
                             <TextBlock x:Name="RadarButtonText" Text="雷达取景" />
                         </Button>
 
-                        <Button x:Name="RadarConfirmButton" Click="OnConfirmRadar" IsEnabled="False">
+                        <Button x:Name="RadarConfirmButton" Click="OnConfirmRadar" IsEnabled="False"
+                            AutomationProperties.Name="确定">
                             <TextBlock Text="确定" />
                         </Button>
 
-                        <Button x:Name="RadarCancelButton" Click="OnCancelRadar" IsEnabled="False">
+                        <Button x:Name="RadarCancelButton" Click="OnCancelRadar" IsEnabled="False"
+                            AutomationProperties.Name="取消">
                             <TextBlock Text="取消" />
                         </Button>
                     </StackPanel>

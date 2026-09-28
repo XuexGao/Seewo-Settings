@@ -136,7 +136,8 @@
                             <TextBlock Text="导出诊断报告" />
                         </Button>
 
-                        <Button x:Name="CopyReportButton" Click="OnCopyReport">
+                        <Button x:Name="CopyReportButton" Click="OnCopyReport"
+                            AutomationProperties.Name="复制到剪贴板">
                             <TextBlock Text="复制到剪贴板" />
                         </Button>
                     </StackPanel>

@@ -115,6 +115,7 @@
                                             Background="Transparent"
                                             BorderThickness="0"
                                             ToolTipService.ToolTip="移除">
+                                        AutomationProperties.Name="移除"
                                         <FontIcon Glyph="&#xE74D;" FontSize="14" />
                                     </Button>
                                 </Grid>
@@ -139,7 +140,8 @@
 
                     <InfoBar x:Name="CrossProcessInfoBar" IsOpen="False" IsClosable="False" Severity="Warning" />
 
-                    <Button x:Name="ResetAckButton" Click="OnResetAcknowledgement">
+                    <Button x:Name="ResetAckButton" Click="OnResetAcknowledgement"
+                        AutomationProperties.Name="重置跨进程风险确认">
                         <TextBlock Text="重置跨进程风险确认" />
                     </Button>
                 </StackPanel>
