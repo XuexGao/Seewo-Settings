@@ -686,30 +686,41 @@ Write-Step '逐页交互'
 # state are listed as unsafe and are never clicked. The list is explicit rather than
 # pattern-matched, so adding a new button makes it visible here as a button that is
 # not being exercised.
+# Controls the sweep must never click, because they change machine state in a way that
+# would take the runner down or is not reversible in a test run.
+#
+# Everything not listed here IS clicked, so this list should stay as short as the risk
+# allows. In particular the read-only scan and refresh buttons are deliberately NOT
+# listed: "希沃软件扫描扫不出来" was one of the reported defects, and excluding the scan
+# button is what stopped the sweep from ever reproducing it.
+#
+# The comments are outside the array on purpose - text inside it would be parsed as
+# entries.
 $unsafeButtons = @(
+    # Power and session - would end the test run.
     '关机', '重启', '注销', '锁定工作站', '取消待执行的关机',
-    '全部结束', '结束选中', '结束进程',
-    '全部挂起', '挂起选中', '挂起',
+
+    # Process control - terminates or freezes real programs.
+    '全部结束', '结束选中', '结束进程', '全部挂起', '挂起选中', '挂起',
+
+    # Destructive, system-wide, or needs admin and is not reversible in a test.
     '完全卸载', '移除摄像头', '移除本程序创建的所有防火墙规则',
-    '全部禁用希沃自启', '全部恢复', '恢复选中', '恢复',
-    '保存设置', '恢复默认设置', '放弃修改并重新加载',
-    '删除', '删除该规则', '重置跨进程风险确认',
-    '导出诊断报告', '打开配置文件夹', '打开日志文件夹', '清空显示',
-    '浏览…', '全选', '把勾选项保存为规则', '开始扫描', '扫描开机自启项',
+    '全部禁用希沃自启', '全部恢复', '恢复选中', '恢复', '保存设置',
+    '删除', '删除该规则', '重置跨进程风险确认', '恢复默认设置',
+    '放弃修改并重新加载',
+
+    # Registration and enumeration - writes to the registry, and the camera is already
+    # exercised through the push buttons.
+    '一键安装（注册 + 创建）', '创建摄像头实例', '列出系统设备',
+
+    # Opens a modal dialog or an external window, which then covers the app and makes
+    # every later UI Automation lookup fail. A dialog opened this way once broke
+    # navigation to every subsequent page.
     '新建任务', '添加动作', '保存任务', '取消', '确定',
-    # The camera push buttons and own-window protection are deliberately NOT listed
-    # as unsafe: they are harmless (shared memory writes, or an API call on our own
-    # window) and they are exactly the operations that were reported crashing. Leaving
-    # them out is what let the defect through the first time.
-    '推送图片',
-    '一键安装（注册 + 创建）', '创建摄像头实例', '列出系统设备', '刷新',
-    # These open an external window or the file picker, which then covers the app and
-    # makes every later UI Automation call fail. One of them launched Notepad over the
-    # window during the first run of this sweep, which is what broke navigation to
-    # every subsequent page.
-    '运行程序', '打开配置文件', '浏览…', '导出诊断报告',
-    '打开配置文件夹', '打开日志文件夹', '复制到剪贴板', '复制全部'
+    '浏览…', '运行程序', '打开配置文件', '导出诊断报告',
+    '打开配置文件夹', '打开日志文件夹'
 )
+
 
 function Get-SafeButtons {
     param([System.Windows.Automation.AutomationElement]$Window)
@@ -739,12 +750,56 @@ function Get-SafeButtons {
             continue
         }
 
-        if ($button.Current.IsOffscreen) {
+        if (-not $button.Current.IsEnabled) {
             continue
         }
 
-        if (-not $button.Current.IsEnabled) {
-            continue
+        # Bring the element into view before judging whether it is offscreen. The
+        # window is small on the CI desktop, so most page content starts below the fold
+        # and would otherwise be skipped - which is how the camera page's push buttons
+        # went unclicked.
+        if ($button.Current.IsOffscreen) {
+            $scrolled = $false
+
+            try {
+                $scrollItem = $button.GetCurrentPattern(
+                    [System.Windows.Automation.ScrollItemPattern]::Pattern)
+                $scrollItem.ScrollIntoView()
+                $scrolled = $true
+                Start-Sleep -Milliseconds 250
+            }
+            catch {
+                # Not every element supports ScrollItemPattern; try the container.
+            }
+
+            if (-not $scrolled) {
+                try {
+                    $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+                    $parent = $walker.GetParent($button)
+
+                    while ($null -ne $parent) {
+                        try {
+                            $scroll = $parent.GetCurrentPattern(
+                                [System.Windows.Automation.ScrollPattern]::Pattern)
+                            $scroll.SetScrollPercent(
+                                [System.Windows.Automation.ScrollPattern]::NoScroll, 100)
+                            $scrolled = $true
+                            Start-Sleep -Milliseconds 300
+                            break
+                        }
+                        catch {
+                            $parent = $walker.GetParent($parent)
+                        }
+                    }
+                }
+                catch {
+                    # Give up on this element.
+                }
+            }
+
+            if (-not $scrolled) {
+                continue
+            }
         }
 
         if ($unsafeButtons -contains $name) {
