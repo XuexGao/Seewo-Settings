@@ -428,10 +428,14 @@ internal sealed class BannerWindow : IDisposable
     [DllImport("user32.dll")]
     private static extern int FillRect(nint hdc, ref RECT lprc, nint hbr);
 
-    [DllImport("user32.dll")]
+    // Both of these are GDI functions and live in gdi32.dll. Declaring them against
+    // user32.dll throws EntryPointNotFoundException on the first call, which happens
+    // after the background is painted - so the banner showed as a dark block and then
+    // the exception killed the process.
+    [DllImport("gdi32.dll")]
     private static extern int SetBkMode(nint hdc, int mode);
 
-    [DllImport("user32.dll")]
+    [DllImport("gdi32.dll")]
     private static extern uint SetTextColor(nint hdc, uint color);
 
     [DllImport("gdi32.dll")]

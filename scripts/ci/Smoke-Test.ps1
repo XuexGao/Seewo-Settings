@@ -326,6 +326,97 @@ function Invoke-NavigationItem {
 #
 # WinUI sets AutomationId from x:Name, so this is a stable handle that does not depend
 # on display text or control type. Prefer it over matching on a label.
+# Verifies that the banner actually rendered its text.
+#
+# The banner is drawn with a dark background, an orange accent bar on its left edge,
+# and light text. If the text is never drawn the result is a featureless dark
+# rectangle, which is what a user reported as "显示黑色". Checking that the process
+# survived does not distinguish those cases, so this inspects the pixels.
+#
+# The banner is located by its accent bar rather than by a hard-coded rectangle, so a
+# change to its position or size does not silently turn this into a no-op.
+function Assert-BannerHasText {
+    param([string]$ImagePath)
+
+    if (-not (Test-Path $ImagePath)) {
+        Write-Fail "横幅截图不存在：$ImagePath"
+        return
+    }
+
+    Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
+
+    $image = $null
+    $bitmap = $null
+
+    try {
+        $image = [System.Drawing.Image]::FromFile($ImagePath)
+        $bitmap = New-Object System.Drawing.Bitmap $image
+
+        $width = $bitmap.Width
+        $height = $bitmap.Height
+        $scanHeight = [Math]::Min(300, $height)
+
+        # Find the accent bar: the one strongly orange element on screen.
+        $accentLeft = [int]::MaxValue
+        $accentRight = -1
+        $accentTop = [int]::MaxValue
+        $accentBottom = -1
+
+        for ($y = 0; $y -lt $scanHeight; $y++) {
+            for ($x = 0; $x -lt $width; $x++) {
+                $pixel = $bitmap.GetPixel($x, $y)
+
+                if ($pixel.R -gt 190 -and $pixel.G -gt 50 -and $pixel.G -lt 150 -and $pixel.B -lt 120) {
+                    if ($x -lt $accentLeft) { $accentLeft = $x }
+                    if ($x -gt $accentRight) { $accentRight = $x }
+                    if ($y -lt $accentTop) { $accentTop = $y }
+                    if ($y -gt $accentBottom) { $accentBottom = $y }
+                }
+            }
+        }
+
+        if ($accentRight -lt 0) {
+            Write-Fail "截图里找不到横幅的橙色色条，横幅可能没有显示。"
+            return
+        }
+
+        Write-Host "   横幅定位：左侧 x=$accentLeft，y=$accentTop..$accentBottom"
+
+        # The banner is 420 wide, with the accent bar occupying its first 6 pixels.
+        $textLeft = $accentRight + 6
+        $textRight = [Math]::Min($width - 1, $accentLeft + 420)
+
+        $lightPixels = 0
+
+        for ($y = $accentTop; $y -le $accentBottom; $y++) {
+            for ($x = $textLeft; $x -lt $textRight; $x++) {
+                $pixel = $bitmap.GetPixel($x, $y)
+
+                # The title is white and the body is light grey; requiring all three
+                # channels high keeps the orange accent bar from counting.
+                if ($pixel.R -gt 190 -and $pixel.G -gt 190 -and $pixel.B -gt 190) {
+                    $lightPixels++
+                }
+            }
+        }
+
+        if ($lightPixels -lt 30) {
+            Write-Fail ("横幅里几乎没有浅色像素（$lightPixels 个），说明只画了背景和色条、" +
+                        "没有画出文字——这正是「显示黑色」的成因。")
+        }
+        else {
+            Write-Pass "横幅包含文字像素（$lightPixels 个浅色像素）。"
+        }
+    }
+    catch {
+        Write-Warn "无法分析横幅截图：$($_.Exception.Message)"
+    }
+    finally {
+        if ($null -ne $bitmap) { $bitmap.Dispose() }
+        if ($null -ne $image) { $image.Dispose() }
+    }
+}
+
 function Find-ByAutomationId {
     param(
         [System.Windows.Automation.AutomationElement]$Window,
@@ -488,8 +579,16 @@ if (Invoke-NavigationItem -Window $window -Name '隐私监控') {
             # ordinary page and proved nothing.
             Start-Sleep -Seconds 2
 
-            Save-ScreenRegion -Path (Join-Path $OutputDirectory '18-banner.png') `
+            $bannerShot = Join-Path $OutputDirectory '18-banner.png'
+
+            Save-ScreenRegion -Path $bannerShot `
                 -X 0 -Y 0 -Width $screenWidth -Height $screenHeight | Out-Null
+
+            # The banner must actually contain text. Rendering its background but not
+            # its text is a real defect this check exists to catch: the app drew a dark
+            # block, the exception that followed killed the process, and the test still
+            # passed because it only checked that the process was alive.
+            Assert-BannerHasText -ImagePath $bannerShot
 
             # Then wait out the rest of its lifetime, so a crash on dismissal is caught
             # rather than missed.
