@@ -50,7 +50,7 @@
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="InstallButton" Click="OnInstall" Style="{StaticResource AccentButtonStyle}"
-                            AutomationProperties.Name="一键安装（注册 + 创建）">
+                        AutomationProperties.Name="一键安装（注册 + 创建）">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE896;" FontSize="14" />
                                 <TextBlock Text="一键安装（注册 + 创建）" />
@@ -58,22 +58,22 @@
                         </Button>
 
                         <Button x:Name="CreateButton" Click="OnCreate"
-                            AutomationProperties.Name="创建摄像头实例">
+                        AutomationProperties.Name="创建摄像头实例">
                             <TextBlock Text="创建摄像头实例" />
                         </Button>
 
                         <Button x:Name="RemoveButton" Click="OnRemove"
-                            AutomationProperties.Name="移除摄像头">
+                        AutomationProperties.Name="移除摄像头">
                             <TextBlock Text="移除摄像头" />
                         </Button>
 
                         <Button x:Name="ListButton" Click="OnList"
-                            AutomationProperties.Name="列出系统设备">
+                        AutomationProperties.Name="列出系统设备">
                             <TextBlock Text="列出系统设备" />
                         </Button>
 
                         <Button x:Name="UninstallButton" Click="OnUninstall"
-                            AutomationProperties.Name="完全卸载">
+                        AutomationProperties.Name="完全卸载">
                             <TextBlock Text="完全卸载" />
                         </Button>
                     </StackPanel>
@@ -118,7 +118,7 @@
                             <Button x:Name="PushColorButton"
                                     Click="OnPushColor"
                                     VerticalAlignment="Bottom"
-                                AutomationProperties.Name="推送纯色">
+                                    AutomationProperties.Name="推送纯色">
                                 <TextBlock Text="推送纯色" />
                             </Button>
                         </StackPanel>
@@ -151,7 +151,7 @@
                             </Button>
 
                             <Button x:Name="PushImageButton" Click="OnPushImage"
-                                AutomationProperties.Name="推送图片">
+                            AutomationProperties.Name="推送图片">
                                 <TextBlock Text="推送图片" />
                             </Button>
                         </StackPanel>
@@ -167,12 +167,12 @@
 
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button x:Name="TestPatternButton" Click="OnStartTestPattern" Style="{StaticResource AccentButtonStyle}"
-                                AutomationProperties.Name="开始推送测试画面">
+                            AutomationProperties.Name="开始推送测试画面">
                                 <TextBlock Text="开始推送测试画面" />
                             </Button>
 
                             <Button x:Name="StopButton" Click="OnStopPushing"
-                                AutomationProperties.Name="停止推送">
+                            AutomationProperties.Name="停止推送">
                                 <TextBlock Text="停止推送" />
                             </Button>
                         </StackPanel>

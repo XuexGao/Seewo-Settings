@@ -50,7 +50,7 @@
                         Background="Transparent"
                         BorderThickness="0"
                         Padding="8"
-                    AutomationProperties.Name="切换深色/浅色主题">
+                        AutomationProperties.Name="切换深色/浅色主题">
                     <FontIcon x:Name="ThemeIcon" Glyph="&#xE706;" FontSize="14" />
                 </Button>
                 <Button x:Name="SettingsButton"
@@ -59,7 +59,7 @@
                         Background="Transparent"
                         BorderThickness="0"
                         Padding="8"
-                    AutomationProperties.Name="设置">
+                        AutomationProperties.Name="设置">
                     <FontIcon Glyph="&#xE713;" FontSize="14" />
                 </Button>
             </StackPanel>

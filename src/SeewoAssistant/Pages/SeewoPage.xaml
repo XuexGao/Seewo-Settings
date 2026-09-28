@@ -46,7 +46,7 @@
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="ScanButton" Click="OnScan" Style="{StaticResource AccentButtonStyle}"
-                            AutomationProperties.Name="开始扫描">
+                        AutomationProperties.Name="开始扫描">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE721;" FontSize="14" />
                                 <TextBlock Text="开始扫描" />
@@ -54,12 +54,12 @@
                         </Button>
 
                         <Button x:Name="AddSelectedButton" Click="OnAddSelectedRules" IsEnabled="False"
-                            AutomationProperties.Name="把勾选项保存为规则">
+                        AutomationProperties.Name="把勾选项保存为规则">
                             <TextBlock Text="把勾选项保存为规则" />
                         </Button>
 
                         <Button x:Name="SelectAllButton" Click="OnSelectAllDiscovered" IsEnabled="False"
-                            AutomationProperties.Name="全选">
+                        AutomationProperties.Name="全选">
                             <TextBlock Text="全选" />
                         </Button>
                     </StackPanel>
@@ -152,8 +152,8 @@
                                             Tag="{Binding}"
                                             ToolTipService.ToolTip="删除该规则"
                                             Background="Transparent"
-                                            BorderThickness="0">
-                                        AutomationProperties.Name="删除该规则"
+                                            BorderThickness="0"
+                                            AutomationProperties.Name="删除该规则">
                                         <FontIcon Glyph="&#xE74D;" FontSize="14" />
                                     </Button>
                                 </Grid>
@@ -181,7 +181,7 @@
                         <ComboBox Grid.Column="1" x:Name="NewRuleKindCombo" Header="匹配方式" Width="150" VerticalAlignment="Bottom" />
                         <TextBox Grid.Column="2" x:Name="NewRulePatternBox" Header="匹配内容" PlaceholderText="例如 EasiNote.exe" />
                         <Button Grid.Column="3" x:Name="AddRuleButton" Click="OnAddRule" VerticalAlignment="Bottom"
-                            AutomationProperties.Name="添加">
+                        AutomationProperties.Name="添加">
                             <TextBlock Text="添加" />
                         </Button>
                     </Grid>
@@ -200,7 +200,7 @@
                 <StackPanel Spacing="12">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="RefreshProcessesButton" Click="OnRefreshProcesses"
-                            AutomationProperties.Name="刷新">
+                        AutomationProperties.Name="刷新">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE72C;" FontSize="14" />
                                 <TextBlock Text="刷新" />
@@ -208,34 +208,34 @@
                         </Button>
 
                         <Button x:Name="SuspendSelectedButton" Click="OnSuspendSelected" IsEnabled="False"
-                            AutomationProperties.Name="挂起选中">
+                        AutomationProperties.Name="挂起选中">
                             <TextBlock Text="挂起选中" />
                         </Button>
 
                         <Button x:Name="ResumeSelectedButton" Click="OnResumeSelected" IsEnabled="False"
-                            AutomationProperties.Name="恢复选中">
+                        AutomationProperties.Name="恢复选中">
                             <TextBlock Text="恢复选中" />
                         </Button>
 
                         <Button x:Name="KillSelectedButton" Click="OnKillSelected" IsEnabled="False"
-                            AutomationProperties.Name="结束选中">
+                        AutomationProperties.Name="结束选中">
                             <TextBlock Text="结束选中" />
                         </Button>
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="SuspendAllButton" Click="OnSuspendAll"
-                            AutomationProperties.Name="全部挂起">
+                        AutomationProperties.Name="全部挂起">
                             <TextBlock Text="全部挂起" />
                         </Button>
 
                         <Button x:Name="ResumeAllButton" Click="OnResumeAll"
-                            AutomationProperties.Name="全部恢复">
+                        AutomationProperties.Name="全部恢复">
                             <TextBlock Text="全部恢复" />
                         </Button>
 
                         <Button x:Name="KillAllButton" Click="OnKillAll"
-                            AutomationProperties.Name="全部结束">
+                        AutomationProperties.Name="全部结束">
                             <TextBlock Text="全部结束" />
                         </Button>
                     </StackPanel>
@@ -282,8 +282,8 @@
                                                 Tag="{Binding}"
                                                 ToolTipService.ToolTip="禁止该程序联网"
                                                 Background="Transparent"
-                                                BorderThickness="0">
-                                            AutomationProperties.Name="禁止该程序联网"
+                                                BorderThickness="0"
+                                                AutomationProperties.Name="禁止该程序联网">
                                             <FontIcon Glyph="&#xE72E;" FontSize="14" />
                                         </Button>
 
@@ -291,8 +291,8 @@
                                                 Tag="{Binding}"
                                                 ToolTipService.ToolTip="恢复该程序联网"
                                                 Background="Transparent"
-                                                BorderThickness="0">
-                                            AutomationProperties.Name="恢复该程序联网"
+                                                BorderThickness="0"
+                                                AutomationProperties.Name="恢复该程序联网">
                                             <FontIcon Glyph="&#xE8BB;" FontSize="14" />
                                         </Button>
                                     </StackPanel>
@@ -316,7 +316,7 @@
                                Text="「禁止联网」会为该程序创建入站和出站两条阻断规则，覆盖域、专用和公用三种网络配置文件。规则名称带 SeewoAssistant Block 前缀，便于精确识别和移除。" />
 
                     <Button x:Name="RemoveAllFirewallButton" Click="OnRemoveAllFirewallRules"
-                        AutomationProperties.Name="移除本程序创建的所有防火墙规则">
+                    AutomationProperties.Name="移除本程序创建的所有防火墙规则">
                         <TextBlock Text="移除本程序创建的所有防火墙规则" />
                     </Button>
                 </StackPanel>
@@ -332,17 +332,17 @@
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="ScanStartupButton" Click="OnScanStartup" Style="{StaticResource AccentButtonStyle}"
-                            AutomationProperties.Name="扫描开机自启项">
+                        AutomationProperties.Name="扫描开机自启项">
                             <TextBlock Text="扫描开机自启项" />
                         </Button>
 
                         <Button x:Name="DisableAllStartupButton" Click="OnDisableAllStartup"
-                            AutomationProperties.Name="全部禁用希沃自启">
+                        AutomationProperties.Name="全部禁用希沃自启">
                             <TextBlock Text="全部禁用希沃自启" />
                         </Button>
 
                         <Button x:Name="EnableAllStartupButton" Click="OnEnableAllStartup"
-                            AutomationProperties.Name="全部恢复">
+                        AutomationProperties.Name="全部恢复">
                             <TextBlock Text="全部恢复" />
                         </Button>
                     </StackPanel>

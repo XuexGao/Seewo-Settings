@@ -119,6 +119,61 @@ jobs:
 
           Write-Host "已检查 $($files.Count) 个项目文件，全部有效。" -ForegroundColor Green
 
+      # The XAML compiler reports a malformed file as a bare MSB3073 with a truncated
+      # command line, which names neither the file nor the problem. Two mistakes are
+      # worth catching here because they are easy to make with scripted edits and hard
+      # to see by eye:
+      #
+      #   * an attribute written after the start tag's ">", which XML accepts as text
+      #     content but the XAML compiler rejects
+      #   * a Button with no automation name, which is unreachable for assistive
+      #     technology and cannot be clicked by the UI test
+      - name: Validate the XAML files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $problems = @()
+          $files = Get-ChildItem -Path 'src' -Recurse -Filter '*.xaml' -File
+
+          foreach ($file in $files) {
+            $text = Get-Content $file.FullName -Raw
+
+            # Well-formed XML is necessary but not sufficient; the checks below cover
+            # what the XAML compiler adds on top.
+            try {
+              [xml]$null = $text
+            } catch {
+              $problems += "$($file.Name): XML 无效 - $($_.Exception.Message)"
+              continue
+            }
+
+            $lines = Get-Content $file.FullName
+
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+              if ($lines[$i] -notmatch 'AutomationProperties\.Name=') { continue }
+
+              # Walk back to the previous non-empty line. If it closes a start tag,
+              # this attribute is outside the element.
+              $j = $i - 1
+              while ($j -ge 0 -and $lines[$j].Trim() -eq '') { $j-- }
+              if ($j -lt 0) { continue }
+
+              $prev = $lines[$j].TrimEnd()
+              if ($prev.EndsWith('>') -and -not $prev.EndsWith('/>')) {
+                $problems += "$($file.Name):$($i + 1): AutomationProperties.Name 写在起始标签之外"
+              }
+            }
+          }
+
+          if ($problems.Count -gt 0) {
+            Write-Host ''
+            foreach ($p in $problems) { Write-Host "  $p" -ForegroundColor Red }
+            Write-Error "XAML 校验失败：$($problems.Count) 处问题"
+            exit 1
+          }
+
+          Write-Host "已检查 $($files.Count) 个 XAML 文件，未发现问题。" -ForegroundColor Green
+
       - name: Build the Media Foundation virtual camera (x64)
         id: build_mf_camera
         continue-on-error: true
