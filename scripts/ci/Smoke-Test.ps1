@@ -483,11 +483,19 @@ if (Invoke-NavigationItem -Window $window -Name '隐私监控') {
             $alertButton.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
             Write-Pass '已点击「测试提醒」，横幅应该已经出现。'
 
-            # The banner dismisses itself after a few seconds; wait out its whole
-            # lifetime so a crash on dismissal is caught rather than missed.
-            Start-Sleep -Seconds 8
+            # The banner lives for about six seconds, so capture it while it is still
+            # on screen. Screenshotting after it has gone produced a picture of an
+            # ordinary page and proved nothing.
+            Start-Sleep -Seconds 2
 
             Save-ScreenRegion -Path (Join-Path $OutputDirectory '18-banner.png') `
+                -X 0 -Y 0 -Width $screenWidth -Height $screenHeight | Out-Null
+
+            # Then wait out the rest of its lifetime, so a crash on dismissal is caught
+            # rather than missed.
+            Start-Sleep -Seconds 7
+
+            Save-ScreenRegion -Path (Join-Path $OutputDirectory '19-banner-dismissed.png') `
                 -X 0 -Y 0 -Width $screenWidth -Height $screenHeight | Out-Null
         }
         catch {
