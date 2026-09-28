@@ -539,6 +539,66 @@ public sealed class StartupManagerService
         return output;
     }
 
+    /// <summary>Guards registration of the legacy code-page provider.</summary>
+    private static readonly object EncodingProviderGate = new();
+
+    private static bool _encodingProviderRegistered;
+
+    /// <summary>
+    /// The console output encoding used by schtasks.exe and sc.exe.
+    /// </summary>
+    /// <remarks>
+    /// .NET Core only ships Unicode, ASCII and Latin-1 by default. The legacy code
+    /// pages - including the OEM page these tools write in - require
+    /// <see cref="CodePagesEncodingProvider"/> to be registered, and calling
+    /// <c>Encoding.GetEncoding</c> before that throws
+    /// <see cref="NotSupportedException"/>. That is what broke the startup scan
+    /// entirely on a machine whose OEM code page is not one of the built-in few.
+    /// </remarks>
+    private static System.Text.Encoding OemEncoding
+    {
+        get
+        {
+            EnsureCodePagesRegistered();
+
+            try
+            {
+                var codePage = System.Globalization.CultureInfo.CurrentCulture.TextInfo.OEMCodePage;
+                return System.Text.Encoding.GetEncoding(codePage);
+            }
+            catch (Exception)
+            {
+                // A missing code page must not take the whole scan down. Latin-1 never
+                // fails to decode, so the output is readable even if it is imperfect.
+                return System.Text.Encoding.Latin1;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Registers the legacy code-page provider exactly once.
+    /// </summary>
+    private static void EnsureCodePagesRegistered()
+    {
+        if (_encodingProviderRegistered)
+        {
+            return;
+        }
+
+        lock (EncodingProviderGate)
+        {
+            if (_encodingProviderRegistered)
+            {
+                return;
+            }
+
+            System.Text.Encoding.RegisterProvider(
+                System.Text.CodePagesEncodingProvider.Instance);
+
+            _encodingProviderRegistered = true;
+        }
+    }
+
     private static (int ExitCode, string Output) RunProcessWithExitCode(string fileName, string arguments)
     {
         try
@@ -556,10 +616,14 @@ public sealed class StartupManagerService
                 // console output code page (the OEM code page), not UTF-8. Decoding
                 // their output as UTF-8 would garble every localized status word and
                 // task name on a non-English Windows, so the OEM code page is used.
-                StandardOutputEncoding = System.Text.Encoding.GetEncoding(
-                    System.Globalization.CultureInfo.CurrentCulture.TextInfo.OEMCodePage),
-                StandardErrorEncoding = System.Text.Encoding.GetEncoding(
-                    System.Globalization.CultureInfo.CurrentCulture.TextInfo.OEMCodePage),
+                //
+                // .NET Core does not ship the legacy code pages: Encoding.GetEncoding
+                // throws NotSupportedException for them unless the provider is
+                // registered first. That exception made the whole startup scan fail
+                // with "No data is available for encoding 437", so the page reported
+                // nothing at all. The provider is registered once, below.
+                StandardOutputEncoding = OemEncoding,
+                StandardErrorEncoding = OemEncoding,
             };
 
             using var process = Process.Start(startInfo);

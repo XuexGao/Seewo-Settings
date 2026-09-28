@@ -241,4 +241,31 @@ public sealed class NativeInteropContractTests
             count > 50,
             $"只解析到 {count} 个 P/Invoke 声明，明显偏少，检查用的正则可能已经失效。");
     }
+
+    [Fact]
+    public void LegacyCodePagesAreUsable()
+    {
+        // schtasks.exe and sc.exe write in the console OEM code page. .NET Core does
+        // not ship those code pages, so Encoding.GetEncoding throws
+        // NotSupportedException until the provider is registered. That exception broke
+        // the entire startup scan with "No data is available for encoding 437", and the
+        // page simply showed nothing.
+        //
+        // This asserts the registration the service performs, using the same call.
+        System.Text.Encoding.RegisterProvider(
+            System.Text.CodePagesEncodingProvider.Instance);
+
+        var codePage = System.Globalization.CultureInfo.CurrentCulture.TextInfo.OEMCodePage;
+
+        var exception = Record.Exception(() => System.Text.Encoding.GetEncoding(codePage));
+
+        Assert.True(
+            exception is null,
+            $"OEM 代码页 {codePage} 无法获取（{exception?.GetType().Name}: {exception?.Message}）。" +
+            "schtasks.exe / sc.exe 的输出解码会失败，启动项扫描会整体抛异常。");
+
+        // Code page 437 specifically: it is the one in the reported failure, and it is
+        // not one of the encodings .NET Core provides out of the box.
+        Assert.NotNull(System.Text.Encoding.GetEncoding(437));
+    }
 }

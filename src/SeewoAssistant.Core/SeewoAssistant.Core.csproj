@@ -27,6 +27,11 @@
   <ItemGroup>
     <!-- WMI, used to read another process's command line. -->
     <PackageReference Include="System.Management" Version="8.0.0" />
+
+    <!-- CodePagesEncodingProvider. .NET Core does not ship the legacy code pages, and
+         schtasks.exe / sc.exe write in the OEM code page. Without this the startup scan
+         throws NotSupportedException("No data is available for encoding 437"). -->
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>

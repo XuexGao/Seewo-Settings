@@ -1106,9 +1106,12 @@ if (Test-Path $logPath) {
 
     # Any logged error is worth surfacing in the CI output directly, since a page
     # that throws is caught by the app's own handler rather than crashing.
-    $errors = $logLines | Where-Object { $_ -match '\[ERROR\]' }
+    # @() is required: a single match comes back as a bare string, and a string has no
+    # .Count. Without it the script threw here - after finding a real error, so the
+    # failure was reported as a script bug instead of the defect it had just detected.
+    $errors = @($logLines | Where-Object { $_ -match '\[ERROR\]' })
 
-    if ($errors) {
+    if ($errors.Count -gt 0) {
         Write-Fail "日志中有 $($errors.Count) 条 ERROR："
         $errors | Select-Object -First 10 | ForEach-Object { Write-Host "     $_" -ForegroundColor Red }
     }
