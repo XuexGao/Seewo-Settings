@@ -805,7 +805,19 @@ foreach ($entry in $interactionPlan) {
 
     Start-Sleep -Seconds 2
 
-    $buttons = Get-SafeButtons -Window $window
+    # Buttons whose handler stops the pump must be clicked before the ones that start
+    # it, otherwise the start button is already disabled by the time the sweep reaches
+    # it and its code never runs. That is how 测试摄像头 escaped this check: pushing a
+    # solid colour starts the pump, which disables the test-pattern button.
+    $buttons = @(Get-SafeButtons -Window $window | Sort-Object -Property @{
+        Expression = {
+            switch -Wildcard ($_.Current.Name) {
+                '停止推送*' { 0 }
+                '*测试画面*' { 1 }
+                default     { 2 }
+            }
+        }
+    })
 
     if ($buttons.Count -eq 0) {
         Write-Host "   「$($entry.Page)」没有可安全点击的按钮。"
@@ -813,6 +825,7 @@ foreach ($entry in $interactionPlan) {
     }
 
     $pageClicked = 0
+    $clickedNames = @()
 
     foreach ($button in $buttons) {
         if ($process.HasExited) {
@@ -858,6 +871,7 @@ foreach ($entry in $interactionPlan) {
 
             $pageClicked++
             $clickedTotal++
+            $clickedNames += $name
 
             Start-Sleep -Milliseconds $waitMs
 
@@ -879,6 +893,10 @@ foreach ($entry in $interactionPlan) {
     }
 
     Write-Pass "「$($entry.Page)」：点击了 $pageClicked 个按钮，应用仍然存活。"
+
+    if ($clickedNames.Count -gt 0) {
+        Write-Host "      已点击：$($clickedNames -join '、')"
+    }
 
     Save-WindowScreenshot -Handle $process.MainWindowHandle `
         -Path (Join-Path $OutputDirectory $entry.File) | Out-Null
