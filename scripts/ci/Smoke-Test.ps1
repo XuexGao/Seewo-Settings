@@ -404,6 +404,83 @@ catch {
 # Get anything the runner put on screen out of the way before touching the UI.
 Hide-InterferingWindows -KeepProcessId $process.Id
 
+# Enable the banner before the sweep. It is off by default, so without this the banner
+# window - the thing reported as showing a black block and then crashing - is never
+# created and its code never runs.
+Write-Step '启用醒目横幅（默认关闭，但需要验证）'
+
+if (Invoke-NavigationItem -Window $window -Name '隐私监控') {
+    Start-Sleep -Seconds 2
+
+    # The toggle is labelled by its on/off content, so match on the prefix.
+    $toggles = $window.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::CheckBox)))
+
+    $enabledBanner = $false
+
+    foreach ($toggle in $toggles) {
+        $name = $toggle.Current.Name
+
+        if ($name -like '显示醒目横幅*') {
+            try {
+                $pattern = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+
+                if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) {
+                    $pattern.Toggle()
+                    Start-Sleep -Milliseconds 600
+                }
+
+                Write-Pass "已开启「显示醒目横幅」，横幅窗口会被创建。"
+                $enabledBanner = $true
+            }
+            catch {
+                Write-Warn "无法切换「显示醒目横幅」：$($_.Exception.Message)"
+            }
+
+            break
+        }
+    }
+
+    if (-not $enabledBanner) {
+        Write-Warn '没有找到「显示醒目横幅」开关，横幅代码路径不会被验证。'
+    }
+
+    # This raises a sample alert, which is what creates and paints the banner.
+    foreach ($button in (Get-SafeButtons -Window $window)) {
+        if ($button.Current.Name -eq '测试提醒') {
+            try {
+                $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+                Write-Pass '已点击「测试提醒」，横幅应该已经出现。'
+
+                # The banner dismisses itself after a few seconds; wait long enough to
+                # cover its whole lifetime so a crash on dismissal is caught.
+                Start-Sleep -Seconds 8
+
+                Save-ScreenRegion -Path (Join-Path $OutputDirectory '18-banner.png') `
+                    -X 0 -Y 0 -Width $screenWidth -Height $screenHeight | Out-Null
+            }
+            catch {
+                Write-Warn "无法点击「测试提醒」：$($_.Exception.Message)"
+            }
+
+            break
+        }
+    }
+
+    if ($process.HasExited) {
+        Write-Fail '点击「测试提醒」后应用崩溃了，横幅代码路径有问题。'
+    }
+    else {
+        Write-Pass '横幅显示与自动消失后，应用仍然存活。'
+    }
+}
+else {
+    Write-Warn '无法进入「隐私监控」页面，横幅代码路径不会被验证。'
+}
+
 Write-Step '逐页浏览并截图'
 
 # Each entry is a navigation label and the file name to save. Every page loads its
@@ -485,8 +562,11 @@ $unsafeButtons = @(
     '导出诊断报告', '打开配置文件夹', '打开日志文件夹', '清空显示',
     '浏览…', '全选', '把勾选项保存为规则', '开始扫描', '扫描开机自启项',
     '新建任务', '添加动作', '保存任务', '取消', '确定',
-    '开始推送测试画面', '停止推送', '推送图片', '推送纯色',
-    '保护本程序窗口', '取消保护', '保护选中窗口', '取消保护选中窗口',
+    # The camera push buttons and own-window protection are deliberately NOT listed
+    # as unsafe: they are harmless (shared memory writes, or an API call on our own
+    # window) and they are exactly the operations that were reported crashing. Leaving
+    # them out is what let the defect through the first time.
+    '推送图片',
     '一键安装（注册 + 创建）', '创建摄像头实例', '列出系统设备', '刷新',
     # These open an external window or the file picker, which then covers the app and
     # makes every later UI Automation call fail. One of them launched Notepad over the
