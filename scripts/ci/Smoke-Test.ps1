@@ -417,11 +417,16 @@ function Assert-BannerHasText {
     }
 }
 
-# Finds a single element by its automation name within a given root.
+# Finds an actionable element by its automation name within a given root.
 #
-# Callers should pass the content frame rather than the window: the navigation pane
-# contains items whose names collide with page content (the settings entry is named
-# "设置"), and searching from the window returns the navigation item first.
+# Two subtleties, both of which caused silent skips:
+#
+#   * Callers pass the content frame, not the window. The navigation pane holds items
+#     whose names collide with page content (the settings entry is named "设置"), and a
+#     window-wide search returns the navigation item first.
+#   * A Button with a TextBlock child shares its name with that child, and FindFirst
+#     often returns the TextBlock - which supports neither InvokePattern nor
+#     TogglePattern. So every match is examined and the first actionable one wins.
 function Find-ByName {
     param(
         [System.Windows.Automation.AutomationElement]$Window,
@@ -431,7 +436,28 @@ function Find-ByName {
     $condition = New-Object System.Windows.Automation.PropertyCondition(
         [System.Windows.Automation.AutomationElement]::NameProperty, $Name)
 
-    return $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+    $matches = $Window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+
+    if ($matches.Count -eq 0) { return $null }
+
+    # Prefer an element that can actually be driven.
+    foreach ($candidate in $matches) {
+        if (-not $candidate.Current.IsEnabled) { continue }
+
+        foreach ($pattern in @(
+            [System.Windows.Automation.TogglePattern]::Pattern,
+            [System.Windows.Automation.InvokePattern]::Pattern)) {
+            $supported = $null
+
+            if ($candidate.TryGetCurrentPattern($pattern, [ref]$supported)) {
+                return $candidate
+            }
+        }
+    }
+
+    # Nothing actionable carries that name; return the first match so the caller's
+    # error message can still name it.
+    return $matches[0]
 }
 
 function Find-ByAutomationId {
