@@ -201,6 +201,65 @@ function Save-WindowScreenshot {
 }
 
 # ---------------------------------------------------------------------- ui automation
+# Minimises every visible top-level window that is not the application under test.
+#
+# The Actions runner itself has an interactive host window ("C:\ProgramData\GitHub\Host")
+# which can be maximised over everything. It does not belong to the app, it is not
+# part of what is being tested, and leaving it on top makes the app window unreachable
+# for the clicks that follow.
+function Hide-InterferingWindows {
+    param([int]$KeepProcessId)
+
+    $root = [System.Windows.Automation.AutomationElement]::RootElement
+    $windows = $root.FindAll(
+        [System.Windows.Automation.TreeScope]::Children,
+        [System.Windows.Automation.Condition]::TrueCondition)
+
+    $hidden = 0
+
+    foreach ($w in $windows) {
+        try {
+            if ($w.Current.ProcessId -eq $KeepProcessId) { continue }
+            if (-not $w.Current.IsEnabled) { continue }
+
+            $name = $w.Current.Name
+
+            # Only touch windows that can actually get in the way, and never the shell.
+            if ([string]::IsNullOrWhiteSpace($name)) { continue }
+            if ($name -match 'Program Manager|^Start$|Taskbar') { continue }
+
+            $pattern = $w.GetCurrentPattern(
+                [System.Windows.Automation.WindowPattern]::Pattern)
+            $pattern.SetWindowVisualState(
+                [System.Windows.Automation.WindowVisualState]::Minimized)
+            $hidden++
+        }
+        catch {
+            # Some windows refuse; that is fine.
+        }
+    }
+
+    if ($hidden -gt 0) {
+        Write-Host "   已最小化 $hidden 个干扰窗口。"
+    }
+}
+
+# Re-reads the application's main window element.
+#
+# A cached AutomationElement can go stale once the page inside it is replaced by
+# navigation, after which every descendant lookup fails even though the window is
+# perfectly healthy. Re-acquiring by process id is cheap and removes that whole class
+# of confusing failure.
+function Get-AppWindow {
+    param([int]$ProcessId)
+
+    $root = [System.Windows.Automation.AutomationElement]::RootElement
+    $condition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $ProcessId)
+
+    return $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $condition)
+}
+
 
 function Get-MainWindow {
     param([int]$ProcessId, [int]$TimeoutSeconds)
@@ -341,6 +400,9 @@ try {
 catch {
     Write-Warn "无法最大化窗口：$($_.Exception.Message)"
 }
+
+# Get anything the runner put on screen out of the way before touching the UI.
+Hide-InterferingWindows -KeepProcessId $process.Id
 
 Write-Step '逐页浏览并截图'
 
@@ -492,16 +554,25 @@ foreach ($entry in $interactionPlan) {
         break
     }
 
-    # Bring the app back to the foreground before navigating. A click on the previous
-    # page may have opened a dialog or another window; without this the navigation
-    # item is present but obscured, and every later lookup fails for a reason that has
-    # nothing to do with the page being tested.
+    # Clear anything that appeared on top, then re-acquire the window element. Both
+    # are needed: a window the runner opened can cover the app, and the element cached
+    # before navigation can be stale.
+    Hide-InterferingWindows -KeepProcessId $process.Id
+
     try {
+        [NativeCapture]::ShowWindow($process.MainWindowHandle, [NativeCapture]::SW_RESTORE) | Out-Null
         [NativeCapture]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
-        Start-Sleep -Milliseconds 400
+        Start-Sleep -Milliseconds 500
     }
     catch {
-        # Not fatal; the lookup below will report it if the window really is gone.
+        # Not fatal; the lookup below reports it if the window is really gone.
+    }
+
+    $window = Get-AppWindow -ProcessId $process.Id
+
+    if ($null -eq $window) {
+        Write-Fail "找不到「$($entry.Page)」的应用窗口，应用可能已经退出。"
+        break
     }
 
     if (-not (Invoke-NavigationItem -Window $window -Name $entry.Page)) {
@@ -551,12 +622,17 @@ foreach ($entry in $interactionPlan) {
 
             Start-Sleep -Milliseconds $waitMs
 
-            # A click can open a dialog or move focus. Bring the window back so the
-            # next lookup is not defeated by something being on top of it.
+            # A click can open a dialog, move focus, or replace the page content.
+            # Restore the window and re-acquire the element so the next lookup in this
+            # loop is not defeated by either.
             try {
+                [NativeCapture]::ShowWindow($process.MainWindowHandle, [NativeCapture]::SW_RESTORE) | Out-Null
                 [NativeCapture]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
             }
             catch { }
+
+            $refreshed = Get-AppWindow -ProcessId $process.Id
+            if ($null -ne $refreshed) { $window = $refreshed }
         }
         catch {
             Write-Warn "无法点击「$($entry.Page)」上的「$name」：$($_.Exception.Message)"
