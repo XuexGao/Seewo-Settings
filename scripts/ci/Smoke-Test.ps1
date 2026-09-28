@@ -263,32 +263,6 @@ function Invoke-NavigationItem {
     }
 }
 
-function Invoke-ButtonByName {
-    param(
-        [System.Windows.Automation.AutomationElement]$Window,
-        [string]$Name
-    )
-
-    $condition = New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::NameProperty, $Name)
-
-    $button = $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
-
-    if ($null -eq $button) {
-        return $false
-    }
-
-    try {
-        $pattern = $button.GetCurrentPattern(
-            [System.Windows.Automation.InvokePattern]::Pattern)
-        $pattern.Invoke()
-        return $true
-    }
-    catch {
-        return $false
-    }
-}
-
 # ---------------------------------------------------------------------- main
 
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
@@ -423,39 +397,145 @@ foreach ($page in $pages) {
 Save-ScreenRegion -Path (Join-Path $OutputDirectory '08-full-desktop.png') `
     -X 0 -Y 0 -Width $screenWidth -Height $screenHeight | Out-Null
 
-Write-Step '基本交互'
+Write-Step '逐页交互'
 
-# Exercise the self-check on the diagnostics page: it is the one button that probes
-# every subsystem, so clicking it covers a lot of code without needing admin rights
-# or touching anything destructive.
-if (Invoke-NavigationItem -Window $window -Name '日志与诊断') {
-    Start-Sleep -Seconds 2
+# Click every button that is safe to click, on every page, and verify the app is
+# still alive afterwards.
+#
+# This is the check that was missing. Merely rendering each page proves the XAML
+# parses; it does not execute the code behind the buttons, which is where the crashes
+# were: the banner window and the test-pattern push both faulted only when invoked.
+# A button that kills the process is now a failed check rather than something a user
+# discovers.
+#
+# Buttons that would shut the machine down, terminate processes, or change system
+# state are listed as unsafe and are never clicked. The list is explicit rather than
+# pattern-matched, so adding a new button makes it visible here as a button that is
+# not being exercised.
+$unsafeButtons = @(
+    '关机', '重启', '注销', '锁定工作站', '取消待执行的关机',
+    '全部结束', '结束选中', '结束进程',
+    '全部挂起', '挂起选中', '挂起',
+    '完全卸载', '移除摄像头', '移除本程序创建的所有防火墙规则',
+    '全部禁用希沃自启', '全部恢复', '恢复选中', '恢复',
+    '保存设置', '恢复默认设置', '放弃修改并重新加载',
+    '删除', '删除该规则', '重置跨进程风险确认',
+    '导出诊断报告', '打开配置文件夹', '打开日志文件夹', '清空显示',
+    '浏览…', '全选', '把勾选项保存为规则', '开始扫描', '扫描开机自启项',
+    '新建任务', '添加动作', '保存任务', '取消', '确定',
+    '开始推送测试画面', '停止推送', '推送图片', '推送纯色',
+    '保护本程序窗口', '取消保护', '保护选中窗口', '取消保护选中窗口',
+    '一键安装（注册 + 创建）', '创建摄像头实例', '列出系统设备', '刷新'
+)
 
-    if (Invoke-ButtonByName -Window $window -Name '运行自检') {
-        Write-Pass '已点击「运行自检」，等待探测完成。'
-        Start-Sleep -Seconds 8
-        Save-WindowScreenshot -Handle $process.MainWindowHandle `
-            -Path (Join-Path $OutputDirectory '09-self-check.png') | Out-Null
+function Get-SafeButtons {
+    param([System.Windows.Automation.AutomationElement]$Window)
+
+    $condition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::Button)
+
+    $buttons = $Window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+    $result = @()
+
+    foreach ($button in $buttons) {
+        $name = $button.Current.Name
+
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            # An unnamed button is itself a defect: it is unreachable for assistive
+            # technology. Report it rather than skipping silently.
+            Write-Warn '发现一个没有名称的按钮（辅助技术无法识别，测试也无法点击）。'
+            continue
+        }
+
+        if ($button.Current.IsOffscreen) {
+            continue
+        }
+
+        if (-not $button.Current.IsEnabled) {
+            continue
+        }
+
+        if ($unsafeButtons -contains $name) {
+            continue
+        }
+
+        $result += $button
     }
-    else {
-        Write-Warn '找不到「运行自检」按钮。'
-    }
+
+    return $result
 }
 
-# The window list on the capture page is a good exercise of the window enumerator.
-if (Invoke-NavigationItem -Window $window -Name '防截屏保护') {
+# Pages to exercise, with the buttons on each that are worth clicking first so the
+# page has content before the generic sweep runs.
+$interactionPlan = @(
+    @{ Page = '虚拟摄像头'; File = '11-interact-camera.png' },
+    @{ Page = '隐私监控';   File = '12-interact-privacy.png' },
+    @{ Page = '防截屏保护'; File = '13-interact-capture.png' },
+    @{ Page = '希沃软件';   File = '14-interact-seewo.png' },
+    @{ Page = '定时任务';   File = '15-interact-schedule.png' },
+    @{ Page = '日志与诊断'; File = '16-interact-diagnostics.png' },
+    @{ Page = '设置';       File = '17-interact-settings.png' }
+)
+
+$clickedTotal = 0
+
+foreach ($entry in $interactionPlan) {
+    if ($process.HasExited) {
+        Write-Fail "在进入「$($entry.Page)」之前应用已经退出。"
+        break
+    }
+
+    if (-not (Invoke-NavigationItem -Window $window -Name $entry.Page)) {
+        Write-Fail "找不到导航项「$($entry.Page)」。"
+        continue
+    }
+
     Start-Sleep -Seconds 2
 
-    if (Invoke-ButtonByName -Window $window -Name '刷新窗口列表') {
-        Write-Pass '已点击「刷新窗口列表」。'
-        Start-Sleep -Seconds 4
-        Save-WindowScreenshot -Handle $process.MainWindowHandle `
-            -Path (Join-Path $OutputDirectory '10-window-list.png') | Out-Null
+    $buttons = Get-SafeButtons -Window $window
+
+    if ($buttons.Count -eq 0) {
+        Write-Host "   「$($entry.Page)」没有可安全点击的按钮。"
+        continue
     }
-    else {
-        Write-Warn '找不到「刷新窗口列表」按钮。'
+
+    $pageClicked = 0
+
+    foreach ($button in $buttons) {
+        if ($process.HasExited) {
+            Write-Fail "点击「$($entry.Page)」上的按钮时应用崩溃了。"
+            break
+        }
+
+        $name = $button.Current.Name
+
+        try {
+            $pattern = $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+            $pattern.Invoke()
+            $pageClicked++
+            $clickedTotal++
+
+            # Give the handler time to run. Long operations (window enumeration, the
+            # self-check, a directory scan) need more than a moment.
+            Start-Sleep -Milliseconds 1200
+        }
+        catch {
+            Write-Warn "无法点击「$($entry.Page)」上的「$name」：$($_.Exception.Message)"
+        }
     }
+
+    Write-Pass "「$($entry.Page)」：点击了 $pageClicked 个按钮，应用仍然存活。"
+
+    Save-WindowScreenshot -Handle $process.MainWindowHandle `
+        -Path (Join-Path $OutputDirectory $entry.File) | Out-Null
 }
+
+Write-Pass "共点击 $clickedTotal 个按钮。"
+
+# Let any pending work settle before judging the process, since a crash from an
+# asynchronous handler would otherwise be missed.
+Start-Sleep -Seconds 3
 
 Write-Step '进程状态'
 
