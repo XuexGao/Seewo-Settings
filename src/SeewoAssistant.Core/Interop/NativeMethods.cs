@@ -239,7 +239,7 @@ internal static class NativeMethods
     internal const uint SHTDN_REASON_MAJOR_APPLICATION = 0x00040000;
     internal const uint SHTDN_REASON_FLAG_PLANNED = 0x80000000;
 
-    [DllImport("advapi32.dll", SetLastError = true)]
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool InitiateSystemShutdownExW(
         string? lpMachineName,
@@ -249,7 +249,7 @@ internal static class NativeMethods
         [MarshalAs(UnmanagedType.Bool)] bool bRebootAfterShutdown,
         uint dwReason);
 
-    [DllImport("advapi32.dll", SetLastError = true)]
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool AbortSystemShutdownW(string? lpMachineName);
 
