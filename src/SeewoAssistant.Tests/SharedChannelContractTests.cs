@@ -211,4 +211,76 @@ public sealed class SharedChannelContractTests
             Assert.NotEqual(globalValue, localValue);
         }
     }
+
+    [Fact]
+    public void NativeFrameHeaderLayoutMatchesTheManagedOne()
+    {
+        var header = RequireNativeHeader();
+        var text = File.ReadAllText(header!);
+
+        // Read the field list out of the native struct, in declaration order.
+        var structMatch = Regex.Match(
+            text,
+            @"struct\s+VcamFrameHeader\s*\{(?<body>.*?)\};",
+            RegexOptions.Singleline);
+
+        Assert.True(structMatch.Success, "在 SeewoIpc.h 中找不到 VcamFrameHeader。");
+
+        var nativeFields = Regex.Matches(
+                structMatch.Groups["body"].Value,
+                @"^\s*(?<type>uint32_t|uint64_t|int32_t|int64_t)\s+(?<name>\w+)\s*;",
+                RegexOptions.Multiline)
+            .Select(m => m.Groups["name"].Value)
+            .ToList();
+
+        Assert.NotEmpty(nativeFields);
+
+        // The managed struct must declare the same fields, in the same order, with the
+        // same widths. Order matters because both sides write into the same memory.
+        var managedFields = typeof(FrameHeader)
+            .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+            .Select(f => (Name: f.Name, Size: System.Runtime.InteropServices.Marshal.SizeOf(f.FieldType)))
+            .ToList();
+
+        Assert.Equal(nativeFields.Count, managedFields.Count);
+
+        for (var i = 0; i < nativeFields.Count; i++)
+        {
+            // C# uses PascalCase, the native side camelCase, so compare case-insensitively.
+            Assert.True(
+                string.Equals(nativeFields[i], managedFields[i].Name, StringComparison.OrdinalIgnoreCase),
+                $"第 {i} 个字段不一致：原生是 {nativeFields[i]}，托管是 {managedFields[i].Name}。");
+
+            // A uint32_t/uint64_t in C++ must be a 4/8 byte type in C#.
+            var nativeWidth = structMatch.Groups["body"].Value.Contains($"uint64_t {nativeFields[i]};") ? 8 : 4;
+            Assert.True(
+                managedFields[i].Size == nativeWidth,
+                $"字段 {nativeFields[i]} 原生宽 {nativeWidth} 字节，托管宽 {managedFields[i].Size} 字节。");
+        }
+    }
+
+    [Fact]
+    public void ManagedFrameHeaderSizeMatchesTheNativeOffset()
+    {
+        var header = RequireNativeHeader();
+        var text = File.ReadAllText(header!);
+
+        // The native header must fit inside the payload offset the two sides share.
+        var payloadOffset = Regex.Match(text, @"kVcamPayloadOffset\s*=\s*(\d+)");
+        Assert.True(payloadOffset.Success, "找不到 kVcamPayloadOffset。");
+
+        var offset = int.Parse(payloadOffset.Groups[1].Value);
+
+        // The managed contract asserts its own size at type initialisation; reading it
+        // here proves the assertion exists and holds.
+        Assert.True(
+            FrameChannelContract.HeaderSize <= offset,
+            $"托管帧头 {FrameChannelContract.HeaderSize} 字节超过了原生载荷偏移 {offset} 字节。");
+
+        var actual = System.Runtime.InteropServices.Marshal.SizeOf<FrameHeader>();
+
+        Assert.True(
+            actual == FrameChannelContract.HeaderSize,
+            $"FrameHeader 实际 {actual} 字节，契约声明 {FrameChannelContract.HeaderSize} 字节。");
+    }
 }

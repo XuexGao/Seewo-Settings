@@ -32,6 +32,31 @@ internal static class FrameChannelContract
     internal const int PayloadOffset = 64;
     internal const int SectionBytes = PayloadOffset + MaxFrameBytes;
 
+    /// <summary>
+    /// Size of the frame header, which must match <c>sizeof(VcamFrameHeader)</c> in
+    /// the native header.
+    /// </summary>
+    internal const int HeaderSize = 56;
+
+    /// <summary>
+    /// Fails fast when the managed header no longer matches the native one.
+    /// </summary>
+    /// <remarks>
+    /// This runs at type initialisation, so a mismatch is a loud startup failure rather
+    /// than frames the camera cannot interpret.
+    /// </remarks>
+    static FrameChannelContract()
+    {
+        var actual = System.Runtime.InteropServices.Marshal.SizeOf<FrameHeader>();
+
+        if (actual != HeaderSize)
+        {
+            throw new InvalidOperationException(
+                $"FrameHeader 的托管布局是 {actual} 字节，但原生端期望 {HeaderSize} 字节。" +
+                "两边必须逐字段一致，否则虚拟摄像头会读到错位的画面。");
+        }
+    }
+
     internal const uint FormatBgra32 = 0;
 
     /// <summary>Producer states, matching <c>seewo::VcamSourceState</c>.</summary>
@@ -40,8 +65,22 @@ internal static class FrameChannelContract
 }
 
 /// <summary>
-/// Header layout, matching <c>seewo::VcamFrameHeader</c> (packed to 8 bytes).
+/// The header the native media source reads at the start of the shared section.
 /// </summary>
+/// <remarks>
+/// <para>
+/// This mirrors <c>VcamFrameHeader</c> in <c>native/SeewoCommon/SeewoIpc.h</c> field
+/// for field, and it is written directly into the shared memory the media source
+/// reads. <see cref="FrameChannelContract.HeaderSize"/> asserts the size.
+/// </para>
+/// <para>
+/// The layout is declared explicitly. Without <see cref="StructLayoutAttribute"/> the
+/// runtime may reorder fields, and a reordering here would neither fail to compile nor
+/// throw: it would place the width where the height belongs and the camera would show
+/// garbage. <see cref="FrameChannelContract"/> then asserts the resulting size, so a
+/// field added on one side only is a startup failure rather than a corrupted picture.
+/// </para>
+/// </remarks>
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
 internal struct FrameHeader
 {
