@@ -31,6 +31,7 @@ internal sealed class BannerWindow : IDisposable
     private const int WS_EX_LAYERED = 0x00080000;
 
     private const uint SW_SHOWNOACTIVATE = 4;
+    private const int SW_HIDE = 0;
 
     private const int WM_PAINT = 0x000F;
     private const int WM_TIMER = 0x0113;
@@ -162,30 +163,48 @@ internal sealed class BannerWindow : IDisposable
 
     private static nint StaticWindowProc(nint hWnd, uint message, nint wParam, nint lParam)
     {
-        switch (message)
+        // A managed exception raised inside a native callback unwinds through native
+        // frames, which terminates the process and bypasses App.UnhandledException.
+        // Catching here means a drawing or timing fault degrades to a blank banner
+        // rather than taking the whole application down.
+        try
         {
-            case WM_ERASEBKGND:
-                // Painting happens in WM_PAINT; suppressing the erase avoids flicker.
-                return 1;
+            switch (message)
+            {
+                case WM_ERASEBKGND:
+                    // Painting happens in WM_PAINT; suppressing the erase avoids flicker.
+                    return 1;
 
-            case WM_PAINT:
-                PaintBanner(hWnd);
-                return 0;
+                case WM_PAINT:
+                    PaintBanner(hWnd);
+                    return 0;
 
-            case WM_TIMER:
-                if (wParam == TimerDismiss)
-                {
-                    KillTimer(hWnd, TimerDismiss);
-                    ShowWindow(hWnd, 0); // SW_HIDE
-                }
+                case WM_TIMER:
+                    if (wParam == TimerDismiss)
+                    {
+                        KillTimer(hWnd, TimerDismiss);
 
-                return 0;
+                        // Hide rather than destroy: the window is reused for the next
+                        // alert, and destroying it here would leave a dangling handle
+                        // in the field that owns it.
+                        ShowWindow(hWnd, SW_HIDE);
+                    }
 
-            case WM_DESTROY:
-                return 0;
+                    return 0;
 
-            default:
-                return DefWindowProcW(hWnd, message, wParam, lParam);
+                case WM_DESTROY:
+                    return 0;
+
+                default:
+                    return DefWindowProcW(hWnd, message, wParam, lParam);
+            }
+        }
+        catch (Exception)
+        {
+            // Deliberately swallowed. There is no logging facility available from a
+            // static callback without risking a re-entrant call, and the window is
+            // non-essential: the toast notification is the primary alert channel.
+            return DefWindowProcW(hWnd, message, wParam, lParam);
         }
     }
 
@@ -234,9 +253,9 @@ internal sealed class BannerWindow : IDisposable
             titleRect.Top += 16;
             titleRect.Right -= 16;
 
-            var titleFont = CreateFontW(-20, 0, 0, 0, 700, 0, 0, 0, 0, 0, 0, 0, 0, "Microsoft YaHei UI");
+            var titleFont = CreateFont(-20, 0, 0, 0, 700, 0, 0, 0, 0, 0, 0, 0, 0, "Microsoft YaHei UI");
             var previousFont = SelectObject(deviceContext, titleFont);
-            DrawTextW(deviceContext, title, -1, ref titleRect, 0x00000010 | 0x00000020); // NOPREFIX | WORDBREAK
+            DrawText(deviceContext, title, -1, ref titleRect, 0x00000010 | 0x00000020); // NOPREFIX | WORDBREAK
             SelectObject(deviceContext, previousFont);
             DeleteObject(titleFont);
 
@@ -248,9 +267,9 @@ internal sealed class BannerWindow : IDisposable
             bodyRect.Right -= 16;
             bodyRect.Bottom -= 12;
 
-            var bodyFont = CreateFontW(-15, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 0, 0, "Microsoft YaHei UI");
+            var bodyFont = CreateFont(-15, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 0, 0, "Microsoft YaHei UI");
             previousFont = SelectObject(deviceContext, bodyFont);
-            DrawTextW(deviceContext, body, -1, ref bodyRect, 0x00000010 | 0x00000020);
+            DrawText(deviceContext, body, -1, ref bodyRect, 0x00000010 | 0x00000020);
             SelectObject(deviceContext, previousFont);
             DeleteObject(bodyFont);
         }
@@ -403,8 +422,8 @@ internal sealed class BannerWindow : IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetLayeredWindowAttributes(nint hWnd, uint crKey, byte bAlpha, uint dwFlags);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int DrawTextW(nint hdc, string lpchText, int cchText, ref RECT lprc, uint format);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "DrawTextW")]
+    private static extern int DrawText(nint hdc, string lpchText, int cchText, ref RECT lprc, uint format);
 
     [DllImport("user32.dll")]
     private static extern int FillRect(nint hdc, ref RECT lprc, nint hbr);
@@ -418,8 +437,8 @@ internal sealed class BannerWindow : IDisposable
     [DllImport("gdi32.dll")]
     private static extern nint CreateSolidBrush(uint color);
 
-    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
-    private static extern nint CreateFontW(int cHeight, int cWidth, int cEscapement, int cOrientation,
+    [DllImport("gdi32.dll", CharSet = CharSet.Unicode, EntryPoint = "CreateFontW")]
+    private static extern nint CreateFont(int cHeight, int cWidth, int cEscapement, int cOrientation,
         int cWeight, uint bItalic, uint bUnderline, uint bStrikeOut, uint iCharSet,
         uint iOutPrecision, uint iClipPrecision, uint iQuality, uint iPitchAndFamily, string pszFaceName);
 

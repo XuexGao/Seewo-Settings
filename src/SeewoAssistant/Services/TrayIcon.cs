@@ -120,10 +120,13 @@ internal sealed class TrayIcon : IDisposable
             cbSize = Marshal.SizeOf<NOTIFYICONDATAW>(),
             hWnd = _hwnd,
             uID = TrayIconId,
-            uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP,
+            uFlags = NIF_MESSAGE | NIF_ICON,
             uCallbackMessage = WM_TRAYICON,
             hIcon = _icon,
-            szTip = Tooltip,
+            // szTip is deliberately left empty and NIF_TIP is not set: the user asked
+            // for no hover text, and an empty string with NIF_TIP still reserves the
+            // tooltip window.
+            szTip = string.Empty,
             szInfo = string.Empty,
             szInfoTitle = string.Empty,
         };
@@ -131,11 +134,18 @@ internal sealed class TrayIcon : IDisposable
         return Shell_NotifyIconW(message, ref data);
     }
 
-    /// <summary>Updates the hover text.</summary>
+    /// <summary>
+    /// Retained so callers do not need to change, but intentionally does nothing.
+    /// </summary>
+    /// <remarks>
+    /// The icon no longer carries hover text, so there is nothing to update. It
+    /// previously called NIM_MODIFY on every status refresh - several times a second -
+    /// and a click arriving while the shell was rewriting the icon could be dropped,
+    /// which is one reason opening the window took several attempts.
+    /// </remarks>
     internal void UpdateTooltip(string tooltip)
     {
-        Tooltip = tooltip.Length > 120 ? tooltip[..120] : tooltip;
-        AddOrModify(NIM_MODIFY);
+        // No-op by design. See the remarks above.
     }
 
     private static void RegisterWindowClass()
@@ -172,8 +182,10 @@ internal sealed class TrayIcon : IDisposable
 
                 switch (notification)
                 {
+                    // A single left click opens the window, as the user asked. The
+                    // double-click message is deliberately not handled: handling both
+                    // made one physical click sequence raise the event twice.
                     case WM_LBUTTONUP:
-                    case WM_LBUTTONDBLCLK:
                         _instance?.OpenRequested?.Invoke(_instance, EventArgs.Empty);
                         return 0;
 
@@ -186,34 +198,40 @@ internal sealed class TrayIcon : IDisposable
             }
 
             case WM_COMMAND:
-            {
-                switch ((int)(wParam.ToInt64() & 0xFFFF))
-                {
-                    case MenuOpen:
-                        _instance?.OpenRequested?.Invoke(_instance, EventArgs.Empty);
-                        return 0;
-
-                    case MenuTogglePrivacy:
-                        _instance?.TogglePrivacyRequested?.Invoke(_instance, EventArgs.Empty);
-                        return 0;
-
-                    case MenuToggleCamera:
-                        _instance?.ToggleCameraRequested?.Invoke(_instance, EventArgs.Empty);
-                        return 0;
-
-                    case MenuExit:
-                        _instance?.ExitRequested?.Invoke(_instance, EventArgs.Empty);
-                        return 0;
-                }
-
+                HandleCommand((int)(wParam.ToInt64() & 0xFFFF));
                 return 0;
-            }
 
             case WM_DESTROY:
                 return 0;
 
             default:
                 return DefWindowProcW(hWnd, message, wParam, lParam);
+        }
+    }
+
+    /// <summary>
+    /// Runs the action for a menu command id. Shared by the WM_COMMAND path and the
+    /// direct TrackPopupMenu result so both behave identically.
+    /// </summary>
+    private static void HandleCommand(int command)
+    {
+        switch (command)
+        {
+            case MenuOpen:
+                _instance?.OpenRequested?.Invoke(_instance, EventArgs.Empty);
+                break;
+
+            case MenuTogglePrivacy:
+                _instance?.TogglePrivacyRequested?.Invoke(_instance, EventArgs.Empty);
+                break;
+
+            case MenuToggleCamera:
+                _instance?.ToggleCameraRequested?.Invoke(_instance, EventArgs.Empty);
+                break;
+
+            case MenuExit:
+                _instance?.ExitRequested?.Invoke(_instance, EventArgs.Empty);
+                break;
         }
     }
 
@@ -241,6 +259,10 @@ internal sealed class TrayIcon : IDisposable
             // menu does not dismiss when the user clicks elsewhere.
             SetForegroundWindow(_hwnd);
 
+            // TPM_RETURNCMD makes TrackPopupMenu return the chosen command id, so it
+            // can be dispatched straight away. Posting WM_COMMAND to ourselves also
+            // worked, but it queued the work behind anything else already in the
+            // queue, which is why a menu choice could appear to do nothing.
             var command = TrackPopupMenu(
                 menu,
                 TPM_RIGHTBUTTON | TPM_RETURNCMD,
@@ -249,7 +271,7 @@ internal sealed class TrayIcon : IDisposable
 
             if (command != 0)
             {
-                PostMessageW(_hwnd, WM_COMMAND, command, nint.Zero);
+                HandleCommand(command);
             }
         }
         finally

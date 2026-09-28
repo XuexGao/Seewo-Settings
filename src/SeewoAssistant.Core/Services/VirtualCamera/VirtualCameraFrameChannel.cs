@@ -12,10 +12,15 @@ namespace SeewoAssistant.Core.Services.VirtualCamera;
 /// </summary>
 internal static class FrameChannelContract
 {
+    // These must match native/SeewoCommon/SeewoIpc.h byte for byte, including the
+    // Global\ / Local\ prefix. A name without a prefix is created in the caller's
+    // session namespace, so a prefix mismatch means the two sides create two
+    // different objects and silently never communicate.
+    // SharedChannelContractTests asserts these values.
     internal const string SectionName = @"Global\SeewoAssistant.VCam.Frame.v1";
-    internal const string LocalSectionName = @"SeewoAssistant.VCam.Frame.v1.local";
+    internal const string LocalSectionName = @"Local\SeewoAssistant.VCam.Frame.v1";
     internal const string DataEventName = @"Global\SeewoAssistant.VCam.DataReady.v1";
-    internal const string LocalDataEventName = @"SeewoAssistant.VCam.DataReady.v1.local";
+    internal const string LocalDataEventName = @"Local\SeewoAssistant.VCam.DataReady.v1";
 
     internal const uint Magic = 0x53435631;   // 'SCV1'
     internal const uint Version = 1;

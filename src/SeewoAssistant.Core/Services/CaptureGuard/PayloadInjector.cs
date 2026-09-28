@@ -113,16 +113,17 @@ internal sealed class PayloadInjector
             return ActionResult.Fail($"无法确定进程 {processId} 的位数，已中止注入。");
         }
 
-        // A 64-bit process cannot host a 32-bit DLL, and vice versa.
-        var injectorIs64 = Environment.Is64BitProcess;
-        if ((bitness == ProcessBitness.X64) != injectorIs64)
-        {
-            return ActionResult.Fail(
-                $"位数不匹配：本程序是 {(injectorIs64 ? "64" : "32")} 位，" +
-                $"目标进程是 {(bitness == ProcessBitness.X64 ? "64" : "32")} 位。" +
-                "请使用与目标进程位数一致的 SeewoAssistant 版本。");
-        }
-
+        // Cross-bitness injection is supported, not refused.
+        //
+        // The payload for the target's architecture is loaded by a remote thread
+        // running the *target's* LoadLibraryW, whose address is computed from that
+        // process's own kernel32 base plus the export RVA read from the matching
+        // on-disk binary. That is exactly why ResolveLoadLibraryAddress has a
+        // different-bitness branch and why the x86 payload is built and shipped.
+        //
+        // This previously returned a failure whenever the bitness differed, which
+        // made all of that machinery unreachable and left every 32-bit target
+        // ("不兼容32位") unusable even though the code to handle it was present.
         var payloadPath = ResolvePayloadPath(bitness);
         if (payloadPath is null)
         {
@@ -275,14 +276,15 @@ internal sealed class PayloadInjector
     {
         var architecture = bitness == ProcessBitness.X64 ? "x64" : "x86";
 
-        // The published layout puts the payload next to the app under native\<arch>,
-        // but a developer build may have it in the raw project output. Try the
-        // likely locations in order.
+        // The published layout puts the payload next to the app under native\<arch>.
+        // The other entries cover a developer build, and an x86 target on a 64-bit
+        // host, where the app itself lives in an x64 folder.
         string[] candidates =
         [
-            Path.Combine(_payloadDirectory, "native", architecture, "SeewoCaptureGuard.Payload.dll"),
-            Path.Combine(_payloadDirectory, architecture, "SeewoCaptureGuard.Payload.dll"),
-            Path.Combine(_payloadDirectory, "SeewoCaptureGuard.Payload.dll"),
+            Path.Combine(_payloadDirectory, "native", architecture, PayloadFileName),
+            Path.Combine(_payloadDirectory, architecture, PayloadFileName),
+            Path.Combine(_payloadDirectory, "native", architecture, "Release", PayloadFileName),
+            Path.Combine(_payloadDirectory, PayloadFileName),
         ];
 
         foreach (var candidate in candidates)
@@ -292,6 +294,10 @@ internal sealed class PayloadInjector
                 return candidate;
             }
         }
+
+        _logger.Warn(
+            $"找不到 {architecture} 位的注入载荷 {PayloadFileName}。" +
+            $"已查找：{string.Join("；", candidates)}");
 
         return null;
     }

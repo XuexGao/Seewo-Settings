@@ -575,14 +575,37 @@ int wmain() {
     }
 
     if (options.Command == L"install") {
+        // Look beside the tool first, then in the layout the release archive uses.
+        // Being tolerant here means a user who unzips only part of the package, or a
+        // developer running from a build tree, still gets a working install instead of
+        // a bare "DLL not found".
         const std::wstring directory = GetExecutableDirectory();
-        const std::wstring dllPath = directory + L"\\" + kMediaSourceDllName;
 
-        if (::GetFileAttributesW(dllPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-            Print(L"[错误] 找不到媒体源 DLL：%ls", dllPath.c_str());
-            Print(L"       请确认 SeewoVirtualCamera.dll 与本工具在同一目录下。");
+        const std::wstring candidates[] = {
+            directory + L"\\" + kMediaSourceDllName,
+            directory + L"\\native\\x64\\" + kMediaSourceDllName,
+            directory + L"\\..\\native\\x64\\" + kMediaSourceDllName,
+        };
+
+        std::wstring dllPath;
+        for (const auto& candidate : candidates) {
+            if (::GetFileAttributesW(candidate.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                dllPath = candidate;
+                break;
+            }
+        }
+
+        if (dllPath.empty()) {
+            Print(L"[错误] 找不到媒体源 DLL（%ls）。", kMediaSourceDllName);
+            Print(L"       已尝试以下位置：");
+            for (const auto& candidate : candidates) {
+                Print(L"         %ls", candidate.c_str());
+            }
+            Print(L"       请确认发行包完整解压，且没有单独移动过 exe 文件。");
             return 2;
         }
+
+        Print(L"[信息] 使用媒体源 DLL：%ls", dllPath.c_str());
 
         if (!RegisterComServer(dllPath, true)) {
             Print(L"       注册 COM 组件需要管理员权限，请以管理员身份运行。");

@@ -363,8 +363,13 @@ jobs:
               ForEach-Object { Copy-Item $_.FullName $pair.Destination -Force }
           }
 
-          # The setup tool sits next to the app so the app finds it by name.
+          # The setup tool sits next to the app so the app finds it by name, AND the
+          # media source DLL sits next to the setup tool, because the tool resolves
+          # that DLL relative to its own directory. Shipping the tool at the root with
+          # its DLL only under native/x64/ is what made every install fail with
+          # "找不到媒体源 DLL".
           Copy-Item 'artifacts/native/x64/Release/SeewoVirtualCamera.Setup.exe' $target -Force
+          Copy-Item 'artifacts/native/x64/Release/SeewoVirtualCamera.dll' $target -Force
 
           # Drop the debug symbols the managed publish produced; they are useful when
           # attached to a build but not in a user-facing download.
@@ -379,6 +384,8 @@ jobs:
           $required = @(
             "$target/SeewoAssistant.exe",
             "$target/SeewoVirtualCamera.Setup.exe",
+            # Must sit beside the setup tool; the tool loads it from its own folder.
+            "$target/SeewoVirtualCamera.dll",
             "$target/native/x64/SeewoVirtualCamera.dll",
             "$target/native/x64/SeewoVirtualCamera.DShow.dll",
             "$target/native/x64/SeewoCaptureGuard.Payload.dll",

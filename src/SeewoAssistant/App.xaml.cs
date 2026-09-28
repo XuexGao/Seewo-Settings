@@ -35,10 +35,27 @@ public partial class App : Application
         InitializeComponent();
 
         // An unhandled exception on the UI thread would otherwise terminate the
-        // process with no trace. Logging it and keeping the app alive is the right
-        // trade for a tray app: a failure in one panel should not take down the
-        // privacy monitor that is running in the background.
+        // process with no trace.
         UnhandledException += OnUnhandledException;
+
+        // Exceptions on background threads do not reach UnhandledException. Without
+        // these two handlers a fault on the frame pump or the registry watcher kills
+        // the process with nothing written anywhere, which is indistinguishable from
+        // a silent crash.
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            CrashReporter.WriteCrashReport(
+                args.ExceptionObject as Exception, "后台线程未处理异常");
+        };
+
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            CrashReporter.WriteCrashReport(args.Exception, "未观察的任务异常");
+
+            // Marking it observed prevents the process from being torn down for a
+            // fault that has already been recorded.
+            args.SetObserved();
+        };
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -71,6 +88,19 @@ public partial class App : Application
         catch
         {
             // Logging itself failed; nothing further can be done here.
+        }
+
+        // Write a standalone crash file as well as logging. When the app dies, the
+        // log is the only record, and the user needs something they can find and send
+        // without knowing where the log lives. This is also what makes a crash report
+        // actionable rather than "it closed".
+        try
+        {
+            CrashReporter.WriteCrashReport(e.Exception, "UI 线程未处理异常");
+        }
+        catch
+        {
+            // Reporting the crash must never itself crash.
         }
 
         // Do not mark the exception handled: doing so would leave the UI in an

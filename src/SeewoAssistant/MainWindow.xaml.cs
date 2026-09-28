@@ -200,7 +200,7 @@ public sealed partial class MainWindow : Window
 
     // ------------------------------------------------------------------ tray
 
-    /// <summary>Restores the window from the tray.</summary>
+    /// <summary>Restores the window from the tray or from a minimised state.</summary>
     public void RestoreFromTray()
     {
         if (_appWindow is null)
@@ -208,14 +208,13 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // AppWindow.Show() does not restore a minimised window; the presenter has to
-        // be set back to Overlapped first.
-        if (_appWindow.Presenter is OverlappedPresenter presenter)
+        // Two distinct cases reach here: the window was hidden to the tray, or the
+        // user minimised it with the taskbar button. Show() alone does not restore a
+        // minimised window, so the presenter is restored first when needed.
+        if (_appWindow.Presenter is OverlappedPresenter presenter &&
+            presenter.State == OverlappedPresenterState.Minimized)
         {
-            if (presenter.State == OverlappedPresenterState.Minimized)
-            {
-                presenter.Restore();
-            }
+            presenter.Restore();
         }
 
         _appWindow.Show();
@@ -387,17 +386,23 @@ public sealed partial class MainWindow : Window
         }
 
         // Closing the window should not kill a background privacy monitor unless the
-        // user asked for that. Cancel the close and hide instead.
+        // user asked for that. Cancel the close and hide the window.
+        //
+        // This previously called OverlappedPresenter.Minimize(), which is not what
+        // "hide to the tray" means: the window stayed in the taskbar and Alt+Tab as a
+        // minimised window, so the user could still see it and could not tell that the
+        // app had moved to the tray. AppWindow.Hide() is the operation that removes it
+        // from both, leaving only the tray icon.
         if (_services.Settings.CloseBehavior == CloseBehavior.MinimizeToTray && _trayIcon is not null)
         {
             args.Handled = true;
 
-            if (_appWindow?.Presenter is OverlappedPresenter presenter)
-            {
-                presenter.Minimize();
-            }
+            _appWindow?.Hide();
 
-            _services.Report("希沃助手已最小化到托盘，后台服务继续运行。", StatusSeverity.Informational);
+            _services.Report(
+                "希沃助手已隐藏到托盘，后台服务继续运行。单击托盘图标或右键选择「打开」可恢复窗口。",
+                StatusSeverity.Informational);
+
             return;
         }
 

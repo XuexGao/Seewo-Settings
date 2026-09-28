@@ -41,10 +41,12 @@ internal enum GuardCommandNative : uint
 /// </summary>
 internal sealed class GuardChannel : IDisposable
 {
-    private const string SectionName = @"Global\SeewoAssistant.CaptureGuard.v1";
-    private const string LocalSectionName = @"SeewoAssistant.CaptureGuard.v1.local";
-    private const string RequestEventName = @"Global\SeewoAssistant.CaptureGuard.Request.v1";
-    private const string LocalRequestEventName = @"SeewoAssistant.CaptureGuard.Request.v1.local";
+    // Must match native/SeewoCommon/SeewoIpc.h byte for byte, including the
+    // Global\ / Local\ prefix. See SharedChannelContractTests.
+    internal const string SectionName = @"Global\SeewoAssistant.CaptureGuard.v1";
+    internal const string LocalSectionName = @"Local\SeewoAssistant.CaptureGuard.v1";
+    internal const string RequestEventName = @"Global\SeewoAssistant.CaptureGuard.Request.v1";
+    internal const string LocalRequestEventName = @"Local\SeewoAssistant.CaptureGuard.Request.v1";
 
     private const uint Magic = 0x53434731;  // 'SCG1'
     private const uint Version = 1;

@@ -408,11 +408,23 @@ public sealed partial class CaptureGuardPage : ModulePageBase
         PickerInfoBar.IsOpen = blocked;
     }
 
-    private void OnProtectSelected(object sender, RoutedEventArgs e) => ApplyToSelected(protect: true);
+    private async void OnProtectSelected(object sender, RoutedEventArgs e) =>
+        await ApplyToSelectedAsync(protect: true);
 
-    private void OnUnprotectSelected(object sender, RoutedEventArgs e) => ApplyToSelected(protect: false);
+    private async void OnUnprotectSelected(object sender, RoutedEventArgs e) =>
+        await ApplyToSelectedAsync(protect: false);
 
-    private void ApplyToSelected(bool protect)
+    /// <summary>
+    /// Applies or removes protection on the selected window.
+    /// </summary>
+    /// <remarks>
+    /// This runs the work on a background thread. Cross-process protection injects a
+    /// DLL and then waits for the payload to answer, with a ten-second budget; doing
+    /// that inline froze the window for the whole wait, which the user experienced as
+    /// the operation "timing out". The UI now stays responsive and the buttons are
+    /// disabled while the work is in flight so it cannot be started twice.
+    /// </remarks>
+    private async Task ApplyToSelectedAsync(bool protect)
     {
         if (_selected is null)
         {
@@ -436,11 +448,19 @@ public sealed partial class CaptureGuardPage : ModulePageBase
             return;
         }
 
+        var target = _selected;
+
+        ProtectSelectedButton.IsEnabled = false;
+        UnprotectSelectedButton.IsEnabled = false;
+        Report($"正在{(protect ? "保护" : "取消保护")}「{target.ProcessName}」…");
+
         try
         {
-            var result = protect
-                ? Services.CaptureGuard.Protect(_selected, SelectedMode, allowCrossProcess)
-                : Services.CaptureGuard.Unprotect(_selected, allowCrossProcess);
+            // Protect/Unprotect block while injecting and waiting for the payload, so
+            // they belong off the UI thread.
+            var result = await Task.Run(() => protect
+                ? Services.CaptureGuard.Protect(target, SelectedMode, allowCrossProcess)
+                : Services.CaptureGuard.Unprotect(target, allowCrossProcess));
 
             ShowResult(result);
         }
@@ -449,10 +469,13 @@ public sealed partial class CaptureGuardPage : ModulePageBase
             Services.Logger.Error("Applying capture protection failed.", ex);
             Report($"{(protect ? "保护" : "取消保护")}窗口失败：{ex.Message}", StatusSeverity.Error);
         }
-
-        // Re-read the real state from the OS instead of trusting the snapshot we sent.
-        RefreshWindows();
-        UpdateOwnWindowState();
+        finally
+        {
+            // Re-read the real state from the OS instead of trusting the snapshot we
+            // sent, and restore the buttons.
+            RefreshWindows();
+            UpdateOwnWindowState();
+        }
     }
 
     // ------------------------------------------------------------------ radar picker

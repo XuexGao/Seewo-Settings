@@ -120,81 +120,375 @@ public sealed class SeewoControlService
     /// Scans the machine for installed Seewo software and returns rules for what it
     /// actually found, rather than a canned list that may not match this machine.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three sources are combined, because no single one is complete:
+    /// </para>
+    /// <list type="number">
+    /// <item><description>
+    /// <b>The uninstall registry keys.</b> This is the authoritative record of where
+    /// something was installed, and it works even when the software lives somewhere
+    /// other than Program Files. Both the 64-bit and 32-bit views are read, plus the
+    /// per-user hive, because Seewo products install in all three.
+    /// </description></item>
+    /// <item><description>
+    /// <b>Running processes.</b> Catches a portable or already-running install that
+    /// never registered itself.
+    /// </description></item>
+    /// <item><description>
+    /// <b>Directory scanning</b> under the usual install roots, as a last resort.
+    /// </description></item>
+    /// </list>
+    /// <para>
+    /// The previous implementation scanned directories only, and its directory walk
+    /// was broken: <c>Directory.EnumerateFiles(..., AllDirectories)</c> is lazy, so it
+    /// throws when the enumerator reaches a protected subdirectory rather than at the
+    /// call site. The surrounding try/catch therefore did not cover it and the first
+    /// access-denied folder aborted the entire scan, which is why nothing was ever
+    /// found on a real machine.
+    /// </para>
+    /// </remarks>
     public IReadOnlyList<ProcessRule> DiscoverSeewoSoftware()
     {
         var rules = new List<ProcessRule>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var directory in EnumerateInstallDirectories())
+        var candidates = new List<string>();
+
+        candidates.AddRange(FindExecutablesFromRegistry());
+        candidates.AddRange(FindExecutablesFromRunningProcesses());
+        candidates.AddRange(FindExecutablesFromDirectories());
+
+        _logger.Info($"Seewo discovery examined {candidates.Count} candidate executable(s).");
+
+        foreach (var executable in candidates)
         {
-            IEnumerable<string> executables;
+            string fileName;
 
             try
             {
-                executables = Directory.EnumerateFiles(directory, "*.exe", SearchOption.AllDirectories);
+                fileName = Path.GetFileName(executable);
             }
-            catch (UnauthorizedAccessException)
-            {
-                continue;
-            }
-            catch (DirectoryNotFoundException)
-            {
-                continue;
-            }
-            catch (IOException)
+            catch (ArgumentException)
             {
                 continue;
             }
 
-            foreach (var executable in executables)
+            if (string.IsNullOrWhiteSpace(fileName) || !seenNames.Add(fileName))
             {
-                if (!LooksLikeSeewo(executable))
-                {
-                    continue;
-                }
-
-                var fileName = Path.GetFileName(executable);
-                if (!seen.Add(fileName))
-                {
-                    continue;
-                }
-
-                var description = TryGetFileDescription(executable);
-                var isKnown = KnownSeewoExecutables.Contains(fileName, StringComparer.OrdinalIgnoreCase);
-
-                rules.Add(new ProcessRule
-                {
-                    Name = string.IsNullOrWhiteSpace(description) ? fileName : description,
-                    MatchKind = ProcessMatchKind.ProcessName,
-                    Pattern = fileName,
-                    Enabled = true,
-                    AutoApply = false,
-                    IsDiscovered = true,
-                    Notes = isKnown
-                        ? $"已识别的希沃组件（{Path.GetDirectoryName(executable)}）"
-                        : $"可能是希沃组件（{Path.GetDirectoryName(executable)}）",
-                });
+                continue;
             }
+
+            // A path can be reported by more than one source; the name set above
+            // already de-duplicates, but keeping the path set makes the intent clear
+            // and guards against a name that differs only by case.
+            if (!seenPaths.Add(executable))
+            {
+                continue;
+            }
+
+            if (!LooksLikeSeewo(executable))
+            {
+                continue;
+            }
+
+            var description = TryGetFileDescription(executable);
+            var isKnown = KnownSeewoExecutables.Contains(fileName, StringComparer.OrdinalIgnoreCase);
+
+            rules.Add(new ProcessRule
+            {
+                Name = string.IsNullOrWhiteSpace(description) ? fileName : description,
+                MatchKind = ProcessMatchKind.ProcessName,
+                Pattern = fileName,
+                Enabled = true,
+                AutoApply = false,
+                IsDiscovered = true,
+                Notes = isKnown
+                    ? $"已识别的希沃组件（{SafeDirectoryName(executable)}）"
+                    : $"可能是希沃组件（{SafeDirectoryName(executable)}）",
+            });
         }
 
-        _logger.Info($"Seewo discovery found {rules.Count} executables.");
+        _logger.Info($"Seewo discovery found {rules.Count} executable(s).");
         return rules.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static IEnumerable<string> EnumerateInstallDirectories()
+    /// <summary>Directory part of a path, or an empty string when it has none.</summary>
+    private static string SafeDirectoryName(string path)
     {
+        try
+        {
+            return Path.GetDirectoryName(path) ?? string.Empty;
+        }
+        catch (ArgumentException)
+        {
+            return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Reads install locations out of the uninstall registry keys, which is where an
+    /// installer records what it put on the machine.
+    /// </summary>
+    private List<string> FindExecutablesFromRegistry()
+    {
+        var results = new List<string>();
+
+        // Both registry views, and both hives. A 32-bit installer on a 64-bit system
+        // writes under WOW6432Node, and a per-user install goes to HKCU.
+        (Microsoft.Win32.RegistryKey Root, string Path)[] locations =
+        [
+            (Microsoft.Win32.Registry.LocalMachine,
+             @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+            (Microsoft.Win32.Registry.LocalMachine,
+             @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+            (Microsoft.Win32.Registry.CurrentUser,
+             @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        ];
+
+        foreach (var (root, path) in locations)
+        {
+            try
+            {
+                using var key = root.OpenSubKey(path, writable: false);
+
+                if (key is null)
+                {
+                    continue;
+                }
+
+                foreach (var subKeyName in key.GetSubKeyNames())
+                {
+                    using var subKey = key.OpenSubKey(subKeyName, writable: false);
+
+                    if (subKey is null)
+                    {
+                        continue;
+                    }
+
+                    var displayName = subKey.GetValue("DisplayName")?.ToString() ?? string.Empty;
+                    var publisher = subKey.GetValue("Publisher")?.ToString() ?? string.Empty;
+                    var installLocation = subKey.GetValue("InstallLocation")?.ToString() ?? string.Empty;
+                    var displayIcon = subKey.GetValue("DisplayIcon")?.ToString() ?? string.Empty;
+                    var uninstallString = subKey.GetValue("UninstallString")?.ToString() ?? string.Empty;
+
+                    // The product must look like Seewo by display name, publisher, or
+                    // the paths it recorded. Checking the publisher matters because
+                    // some Seewo components carry a generic display name.
+                    var looksSeewo =
+                        MentionsSeewo(displayName) || MentionsSeewo(publisher) ||
+                        MentionsSeewo(installLocation) || MentionsSeewo(displayIcon) ||
+                        MentionsSeewo(uninstallString);
+
+                    if (!looksSeewo)
+                    {
+                        continue;
+                    }
+
+                    _logger.Debug($"Seewo registry entry '{displayName}' at '{installLocation}'.");
+
+                    // DisplayIcon often points straight at the main executable.
+                    var iconPath = ExtractExecutablePath(displayIcon);
+                    if (iconPath is not null && File.Exists(iconPath))
+                    {
+                        results.Add(iconPath);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(installLocation) && Directory.Exists(installLocation))
+                    {
+                        results.AddRange(EnumerateExecutablesSafely(installLocation, maxDepth: 3));
+                    }
+                }
+            }
+            catch (System.Security.SecurityException ex)
+            {
+                _logger.Debug($"Access denied reading {path}: {ex.Message}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.Debug($"Access denied reading {path}: {ex.Message}");
+            }
+            catch (IOException ex)
+            {
+                _logger.Debug($"Could not read {path}: {ex.Message}");
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Pulls an executable path out of a registry value such as
+    /// <c>"C:\Program Files\Seewo\App.exe",0</c> or <c>C:\App.exe --flag</c>.
+    /// </summary>
+    private static string? ExtractExecutablePath(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var text = value.Trim();
+
+        // A leading quote is the reliable delimiter when present.
+        if (text.StartsWith('"'))
+        {
+            var closing = text.IndexOf('"', 1);
+            if (closing > 1)
+            {
+                return text[1..closing];
+            }
+        }
+
+        // Otherwise take everything up to the first argument or icon-index suffix.
+        var candidates = new[] { ".exe", ".EXE", ".Exe" };
+
+        foreach (var extension in candidates)
+        {
+            var index = text.IndexOf(extension, StringComparison.Ordinal);
+            if (index >= 0)
+            {
+                var end = index + extension.Length;
+                return text[..end].Trim().Trim('"');
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Enumerates <c>*.exe</c> files under a directory without letting a single
+    /// inaccessible subdirectory abort the walk.
+    /// </summary>
+    /// <remarks>
+    /// This is the core fix for the scan finding nothing. The enumeration is driven
+    /// manually with an explicit stack so each directory's failure is handled at the
+    /// point it occurs, instead of relying on a try/catch around a lazy enumerator
+    /// that throws somewhere else entirely.
+    /// </remarks>
+    private static List<string> EnumerateExecutablesSafely(string root, int maxDepth)
+    {
+        var results = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+        {
+            return results;
+        }
+
+        // Breadth-first with an explicit stack of (path, depth). A depth limit keeps
+        // the walk bounded; Seewo installs its executables within a few levels.
+        var pending = new Stack<(string Path, int Depth)>();
+        pending.Push((root, 0));
+
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        while (pending.Count > 0)
+        {
+            var (current, depth) = pending.Pop();
+
+            if (!visited.Add(current))
+            {
+                continue;
+            }
+
+            // Each of the three operations is guarded separately, because any one of
+            // them can fail on a protected directory and none should stop the walk.
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(current, "*.exe"))
+                {
+                    results.Add(file);
+                }
+            }
+            catch (UnauthorizedAccessException) { /* Skip this directory. */ }
+            catch (DirectoryNotFoundException) { /* Vanished mid-walk. */ }
+            catch (IOException) { /* Locked or on a failing device. */ }
+            catch (System.Security.SecurityException) { /* Policy denied. */ }
+
+            if (depth >= maxDepth)
+            {
+                continue;
+            }
+
+            try
+            {
+                foreach (var child in Directory.EnumerateDirectories(current))
+                {
+                    pending.Push((child, depth + 1));
+                }
+            }
+            catch (UnauthorizedAccessException) { /* Skip this directory's children. */ }
+            catch (DirectoryNotFoundException) { }
+            catch (IOException) { }
+            catch (System.Security.SecurityException) { }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Adds the image path of every running process whose name looks like Seewo.
+    /// Catches an install that never registered itself.
+    /// </summary>
+    private static List<string> FindExecutablesFromRunningProcesses()
+    {
+        var results = new List<string>();
+
+        foreach (var process in System.Diagnostics.Process.GetProcesses())
+        {
+            try
+            {
+                var name = process.ProcessName;
+
+                if (!MentionsSeewo(name))
+                {
+                    continue;
+                }
+
+                string? path = null;
+                try
+                {
+                    path = process.MainModule?.FileName;
+                }
+                catch (System.ComponentModel.Win32Exception) { /* Bitness or protected. */ }
+                catch (InvalidOperationException) { /* Exited. */ }
+                catch (NotSupportedException) { }
+
+                if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                {
+                    results.Add(path);
+                }
+            }
+            catch (InvalidOperationException) { /* Exited while enumerating. */ }
+            catch (ArgumentException) { }
+            finally
+            {
+                process.Dispose();
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>Scans the usual install roots as a last resort.</summary>
+    private static List<string> FindExecutablesFromDirectories()
+    {
+        var results = new List<string>();
+
         var roots = new List<string>
         {
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)),
         };
 
-        // Seewo commonly installs under a vendor-named subfolder, so only descend
-        // into directories whose name already looks relevant. Scanning all of
-        // Program Files would take seconds and find nothing.
+        // Per-user installs land here.
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (!string.IsNullOrWhiteSpace(localAppData))
+        {
+            roots.Add(Path.Combine(localAppData, "Programs"));
+        }
+
         foreach (var root in roots)
         {
             if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
@@ -202,31 +496,41 @@ public sealed class SeewoControlService
                 continue;
             }
 
-            yield return root;
+            // Only descend into directories whose name already looks relevant. Walking
+            // all of Program Files would take a long time and find nothing, since a
+            // Seewo install always has a recognisable vendor folder.
+            results.AddRange(EnumerateExecutablesSafely(root, maxDepth: 0));
 
-            IEnumerable<string> children;
             try
             {
-                children = Directory.EnumerateDirectories(root);
-            }
-            catch (UnauthorizedAccessException)
-            {
-                continue;
-            }
-            catch (IOException)
-            {
-                continue;
-            }
-
-            foreach (var child in children)
-            {
-                var name = Path.GetFileName(child);
-                if (SeewoKeywords.Any(k => name.Contains(k, StringComparison.OrdinalIgnoreCase)))
+                foreach (var child in Directory.EnumerateDirectories(root))
                 {
-                    yield return child;
+                    var name = Path.GetFileName(child);
+
+                    if (MentionsSeewo(name))
+                    {
+                        results.AddRange(EnumerateExecutablesSafely(child, maxDepth: 3));
+                    }
                 }
             }
+            catch (UnauthorizedAccessException) { }
+            catch (DirectoryNotFoundException) { }
+            catch (IOException) { }
+            catch (System.Security.SecurityException) { }
         }
+
+        return results;
+    }
+
+    /// <summary>True when a string mentions any Seewo keyword.</summary>
+    private static bool MentionsSeewo(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        return SeewoKeywords.Any(k => text.Contains(k, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>True when a path or its file description mentions Seewo.</summary>

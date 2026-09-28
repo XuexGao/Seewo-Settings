@@ -26,10 +26,16 @@ namespace seewo {
 
 // Bump the version suffix whenever a layout below changes so a stale producer
 // from an older build can never be misread by a newer consumer.
-inline constexpr wchar_t kVcamSectionName[] = L"SeewoAssistant.VCam.Frame.v1";
-inline constexpr wchar_t kVcamLocalSectionName[] = L"SeewoAssistant.VCam.Frame.v1.local";
-inline constexpr wchar_t kVcamDataEventName[] = L"SeewoAssistant.VCam.DataReady.v1";
-inline constexpr wchar_t kVcamRequestEventName[] = L"SeewoAssistant.VCam.SampleRequest.v1";
+// The namespace prefix is part of the name and must match the managed side exactly.
+// A name without a prefix is created in the caller's session namespace, i.e. it is
+// effectively "Local\", so omitting "Global\" here previously made the two sides
+// create two different objects that could never see each other.
+inline constexpr wchar_t kVcamSectionName[] = L"Global\\SeewoAssistant.VCam.Frame.v1";
+inline constexpr wchar_t kVcamLocalSectionName[] = L"Local\\SeewoAssistant.VCam.Frame.v1";
+inline constexpr wchar_t kVcamDataEventName[] = L"Global\\SeewoAssistant.VCam.DataReady.v1";
+inline constexpr wchar_t kVcamLocalDataEventName[] = L"Local\\SeewoAssistant.VCam.DataReady.v1";
+inline constexpr wchar_t kVcamRequestEventName[] = L"Global\\SeewoAssistant.VCam.SampleRequest.v1";
+inline constexpr wchar_t kVcamLocalRequestEventName[] = L"Local\\SeewoAssistant.VCam.SampleRequest.v1";
 
 inline constexpr uint32_t kVcamMagic = 0x53435631;  // 'SCV1'
 inline constexpr uint32_t kVcamVersion = 1;
@@ -83,11 +89,13 @@ static_assert(sizeof(VcamFrameHeader) <= kVcamPayloadOffset,
 // Capture guard request channel
 // ---------------------------------------------------------------------------
 
-inline constexpr wchar_t kGuardSectionName[] = L"SeewoAssistant.CaptureGuard.v1";
+inline constexpr wchar_t kGuardSectionName[] = L"Global\\SeewoAssistant.CaptureGuard.v1";
 inline constexpr wchar_t kGuardLocalSectionName[] =
-    L"SeewoAssistant.CaptureGuard.v1.local";
+    L"Local\\SeewoAssistant.CaptureGuard.v1";
 inline constexpr wchar_t kGuardRequestEventName[] =
-    L"SeewoAssistant.CaptureGuard.Request.v1";
+    L"Global\\SeewoAssistant.CaptureGuard.Request.v1";
+inline constexpr wchar_t kGuardLocalRequestEventName[] =
+    L"Local\\SeewoAssistant.CaptureGuard.Request.v1";
 
 inline constexpr uint32_t kGuardMagic = 0x53434731;  // 'SCG1'
 inline constexpr uint32_t kGuardVersion = 1;
