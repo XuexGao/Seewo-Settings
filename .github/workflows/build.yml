@@ -152,8 +152,16 @@ jobs:
             for ($i = 0; $i -lt $lines.Count; $i++) {
               if ($lines[$i] -notmatch 'AutomationProperties\.Name=') { continue }
 
+              # Only a *bare* attribute line can be misplaced. If the line opens an
+              # element itself, the attribute is inline inside that element's start
+              # tag and is correct - flagging it would be a false positive, which the
+              # first version of this check produced.
+              $line = $lines[$i]
+              $beforeAttribute = $line.Substring(0, $line.IndexOf('AutomationProperties.Name'))
+              if ($beforeAttribute.Contains('<')) { continue }
+
               # Walk back to the previous non-empty line. If it closes a start tag,
-              # this attribute is outside the element.
+              # this bare attribute is outside the element.
               $j = $i - 1
               while ($j -ge 0 -and $lines[$j].Trim() -eq '') { $j-- }
               if ($j -lt 0) { continue }
