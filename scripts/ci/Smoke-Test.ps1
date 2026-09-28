@@ -322,6 +322,22 @@ function Invoke-NavigationItem {
     }
 }
 
+# Finds a single element by its automation id.
+#
+# WinUI sets AutomationId from x:Name, so this is a stable handle that does not depend
+# on display text or control type. Prefer it over matching on a label.
+function Find-ByAutomationId {
+    param(
+        [System.Windows.Automation.AutomationElement]$Window,
+        [string]$AutomationId
+    )
+
+    $condition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, $AutomationId)
+
+    return $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+}
+
 # ---------------------------------------------------------------------- main
 
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
@@ -412,40 +428,47 @@ Write-Step '启用醒目横幅（默认关闭，但需要验证）'
 if (Invoke-NavigationItem -Window $window -Name '隐私监控') {
     Start-Sleep -Seconds 2
 
-    # The toggle is labelled by its on/off content, so match on the prefix.
-    $toggles = $window.FindAll(
-        [System.Windows.Automation.TreeScope]::Descendants,
-        (New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-            [System.Windows.Automation.ControlType]::CheckBox)))
+    # Address the toggle by its automation id (ShowBannerToggle) rather than its
+    # label. Matching on the label proved fragile: it silently skipped the whole
+    # banner path, which is the one thing this check exists to cover.
+    $toggle = Find-ByAutomationId -Window $window -AutomationId 'ShowBannerToggle'
 
     $enabledBanner = $false
 
-    foreach ($toggle in $toggles) {
-        $name = $toggle.Current.Name
+    if ($null -ne $toggle) {
+        try {
+            $pattern = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
 
-        if ($name -like '显示屏幕横幅*') {
-            try {
-                $pattern = $toggle.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
-
-                if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) {
-                    $pattern.Toggle()
-                    Start-Sleep -Milliseconds 600
-                }
-
-                Write-Pass "已开启「显示屏幕横幅」，横幅窗口会被创建。"
-                $enabledBanner = $true
-            }
-            catch {
-                Write-Warn "无法切换「显示醒目横幅」：$($_.Exception.Message)"
+            if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) {
+                $pattern.Toggle()
+                Start-Sleep -Milliseconds 800
             }
 
-            break
+            Write-Pass '已开启「显示屏幕横幅」，横幅窗口会被创建。'
+            $enabledBanner = $true
+        }
+        catch {
+            Write-Warn "无法切换「显示屏幕横幅」：$($_.Exception.Message)"
         }
     }
 
     if (-not $enabledBanner) {
-        Write-Warn '没有找到「显示屏幕横幅」开关，横幅代码路径不会被验证。'
+        # Dump what the page actually exposes, so a future failure is diagnosable from
+        # the log alone instead of needing another round trip.
+        Write-Warn '没有找到 ShowBannerToggle，横幅代码路径不会被验证。页面上的控件：'
+
+        $all = $window.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition)
+
+        foreach ($element in $all) {
+            $id = $element.Current.AutomationId
+            $nm = $element.Current.Name
+
+            if (-not [string]::IsNullOrWhiteSpace($id)) {
+                Write-Host "       id='$id' type=$($element.Current.ControlType.ProgrammaticName) name='$nm'"
+            }
+        }
     }
 
     # This raises a sample alert, which is what creates and paints the banner.
