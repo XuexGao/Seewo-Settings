@@ -118,31 +118,59 @@ public sealed class PrivacyNotifier : IPrivacyNotifier, IDisposable
 
         try
         {
-            var title = $"检测到程序正在使用{usageEvent.DeviceName}";
-
+            // The ToastGeneric template accepts at most three text elements, and adding
+            // a fourth makes BuildNotification throw ArgumentException with "Maximum
+            // number of text elements added". The old code added title, body, time and
+            // then the process IDs, so the toast silently failed whenever a PID had been
+            // resolved - which is exactly when the alert matters most.
+            //
+            // The time and the process IDs now share the third line, so the content is
+            // unchanged and the element count stays at three.
             var builder = new AppNotificationBuilder()
-                .AddText(title)
-                .AddText($"{usageEvent.BestName} 正在使用{usageEvent.DeviceName}。")
-                .AddText($"时间：{usageEvent.ObservedAt.LocalDateTime:HH:mm:ss}");
+                .AddText($"检测到程序正在使用{usageEvent.DeviceName}")
+                .AddText($"{usageEvent.BestName} 正在使用{usageEvent.DeviceName}。");
+
+            var details = $"时间：{usageEvent.ObservedAt.LocalDateTime:HH:mm:ss}";
 
             if (usageEvent.ProcessIds.Count > 0)
             {
-                builder.AddText($"进程 ID：{string.Join(", ", usageEvent.ProcessIds)}");
+                details += $"　进程 ID：{string.Join(", ", usageEvent.ProcessIds)}";
             }
 
-            // The alert is the point of the feature, so it is marked urgent and given
-            // a button that opens the app for a closer look.
-            builder.SetScenario(AppNotificationScenario.Urgent);
+            builder.AddText(details);
+
+            // A button that opens the app for a closer look. This is added before the
+            // scenario because the urgent scenario requires at least one button, and
+            // setting the scenario first would reject the notification outright.
             builder.AddButton(new AppNotificationButton("打开 SeewoAssistant")
                 .AddArgument("action", "open"));
 
-            if (Settings.PrivacyPlaySound)
+            // AppNotificationSoundEvent has no "Alert" member. The available values are
+            // Alarm, Call, Default, IM, Mail, Reminder and SMS (plus numbered variants).
+            // Alarm is the urgent one, which is what a camera or microphone alert
+            // warrants.
+            builder.SetAudioEvent(
+                Settings.PrivacyPlaySound
+                    ? AppNotificationSoundEvent.Alarm
+                    : AppNotificationSoundEvent.Default);
+
+            if (!Settings.PrivacyPlaySound)
             {
-                // AppNotificationSoundEvent has no "Alert" member. The available
-                // values are Alarm, Call, Default, IM, Mail, Reminder and SMS (plus
-                // numbered Alarm/Call variants). Alarm is the urgent one, which is
-                // what a camera or microphone alert warrants.
-                builder.SetAudioEvent(AppNotificationSoundEvent.Alarm);
+                // MuteAudio is the documented way to silence a toast. Omitting the audio
+                // element entirely is not equivalent: the urgent scenario requires audio
+                // to be present, so a notification built without it is rejected with
+                // "The parameter is incorrect".
+                builder.MuteAudio();
+            }
+
+            // Urgent is only available on some systems, and asking for it where it is
+            // unsupported is another way to have the notification rejected. It is
+            // requested only when the platform confirms it can honour it; the alert
+            // still arrives as an ordinary toast otherwise, which is far better than
+            // no alert at all.
+            if (AppNotificationBuilder.IsUrgentScenarioSupported())
+            {
+                builder.SetScenario(AppNotificationScenario.Urgent);
             }
 
             AppNotificationManager.Default.Show(builder.BuildNotification());
@@ -150,7 +178,10 @@ public sealed class PrivacyNotifier : IPrivacyNotifier, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.Warn($"Showing the toast failed: {ex.Message}");
+            // Logged at Error, not Warn: a failed alert is a failure of the feature's
+            // whole purpose, and the previous Warn level let it pass the smoke test's
+            // error check unnoticed.
+            _logger.Error($"Showing the toast failed: {ex.Message}", ex);
         }
     }
 
