@@ -1,6 +1,7 @@
 using SeewoAssistant.Core.Abstractions;
 using SeewoAssistant.Core.Configuration;
 using SeewoAssistant.Core.Services.CaptureGuard;
+using SeewoAssistant.Core.Services.Desktop;
 using SeewoAssistant.Core.Services.Power;
 using SeewoAssistant.Core.Services.Privacy;
 using SeewoAssistant.Core.Services.Scheduling;
@@ -46,6 +47,10 @@ public sealed class AppServices : IAsyncDisposable
         };
 
         CaptureGuard = new CaptureGuardService(logger: _logger);
+
+        // Hiding and restoring desktop windows. Stateless between operations, so it
+        // needs nothing from settings.
+        WindowHider = new WindowHiderService(_logger);
         SeewoControl = new SeewoControlService(logger: _logger);
         Firewall = new FirewallService(_logger);
         StartupManager = new StartupManagerService(_logger);
@@ -76,6 +81,9 @@ public sealed class AppServices : IAsyncDisposable
     public PrivacyNotifier PrivacyNotifier { get; }
 
     public CaptureGuardService CaptureGuard { get; }
+
+    /// <summary>Hides and restores desktop windows on demand.</summary>
+    public WindowHiderService WindowHider { get; }
 
     public SeewoControlService SeewoControl { get; }
 
@@ -221,6 +229,10 @@ public sealed class AppServices : IAsyncDisposable
         {
             // Ask injected payloads to unload rather than leaving them resident.
             CaptureGuard.Dispose();
+
+            // Never leave the desktop hidden because the app exited while windows were
+            // hidden - the user would have no way to bring them back.
+            WindowHider.Restore();
         }
         catch (Exception ex)
         {

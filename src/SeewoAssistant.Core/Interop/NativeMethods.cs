@@ -28,6 +28,23 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool IsWindow(nint hWnd);
 
+    /// <summary>SW_HIDE: hides a window without destroying it.</summary>
+    internal const int SW_HIDE = 0;
+
+    /// <summary>SW_SHOW: shows a window in its current position and size.</summary>
+    internal const int SW_SHOW = 5;
+
+    /// <summary>
+    /// Changes a window's visibility.
+    /// </summary>
+    /// <remarks>
+    /// The return value means "the window was previously visible", not "the call
+    /// succeeded", so callers that need to know the new state must query it separately.
+    /// </remarks>
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ShowWindow(nint hWnd, int nCmdShow);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern int GetWindowTextW(nint hWnd, StringBuilder lpString, int nMaxCount);
 

@@ -882,7 +882,24 @@ public sealed class SeewoControlService
             $"成功 {succeeded} 个，失败 {failures.Count} 个。{string.Join("；", failures.Take(3))}");
     }
 
-    /// <summary>Terminates a process.</summary>
+    /// <summary>
+    /// Terminates a process, stopping any service that backs it first.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Ending the process alone is not enough for a Seewo component that runs as a
+    /// service: the Service Control Manager owns the process and immediately starts a
+    /// replacement, so the process appears to come back and "cannot be killed". Worse,
+    /// the restart also brings up whatever that service depends on, which is what the
+    /// user saw as dormant processes being woken up.
+    /// </para>
+    /// <para>
+    /// Stopping the service first puts the process into a state where the SCM will not
+    /// restart it, and then terminating it is final. If the service cannot be stopped -
+    /// no elevation, or a protected service - the process is still terminated and the
+    /// result says plainly that it may return.
+    /// </para>
+    /// </remarks>
     public ActionResult Terminate(int processId)
     {
         if (processId <= 4)
@@ -891,6 +908,9 @@ public sealed class SeewoControlService
         }
 
         Privacy.DeviceHandleScanner.TryEnableDebugPrivilege();
+
+        // Find and stop any service whose image is this process before killing it.
+        var serviceNote = StopBackingServices(processId);
 
         var process = NativeMethods.OpenProcess(
             NativeMethods.PROCESS_TERMINATE | NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION,
@@ -919,12 +939,154 @@ public sealed class SeewoControlService
             }
 
             _logger.Info($"Terminated process {processId}.");
-            return ActionResult.Ok($"已结束进程 {processId}。");
+
+            return ActionResult.Ok(
+                $"已结束进程 {processId}。" + serviceNote);
         }
         finally
         {
             NativeMethods.CloseHandle(process);
         }
+    }
+
+    /// <summary>
+    /// Stops every Windows service whose running process is <paramref name="processId"/>.
+    /// </summary>
+    /// <returns>A sentence to append to the result, or an empty string.</returns>
+    /// <remarks>
+    /// Without this, ending a service-hosted Seewo process is pointless: the Service
+    /// Control Manager treats the termination as a failure and starts the service again,
+    /// which is the "kill it and it comes back" behaviour. Stopping the service makes
+    /// the termination stick.
+    /// </remarks>
+    private string StopBackingServices(int processId)
+    {
+        var stopped = new List<string>();
+        var refused = new List<string>();
+
+        foreach (var (serviceName, displayName) in FindServicesForProcess(processId))
+        {
+            // `sc stop` is used rather than the SCM API because the service may be
+            // running as another account, and the command line needs no extra interop.
+            var (exitCode, output) = RunSc($"stop \"{serviceName}\"");
+
+            if (exitCode == 0)
+            {
+                stopped.Add(displayName);
+                _logger.Info($"Stopped service '{serviceName}' before terminating PID {processId}.");
+            }
+            else
+            {
+                refused.Add(displayName);
+                _logger.Warn($"Could not stop service '{serviceName}': exit {exitCode} {output.Trim()}");
+            }
+        }
+
+        if (stopped.Count > 0 && refused.Count == 0)
+        {
+            return $" 已先停止其服务：{string.Join("、", stopped)}，服务不会再自动拉起该进程。";
+        }
+
+        if (stopped.Count > 0)
+        {
+            return $" 已停止服务 {string.Join("、", stopped)}，但 {string.Join("、", refused)} 停止失败，" +
+                   "这些服务可能会重新启动该进程。";
+        }
+
+        if (refused.Count > 0)
+        {
+            return $" 它的服务（{string.Join("、", refused)}）停止失败，通常会重新启动该进程，" +
+                   "请以管理员身份重试。";
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// Runs <c>sc.exe</c> with the given arguments and returns its exit code and output.
+    /// </summary>
+    /// <remarks>
+    /// <c>sc.exe</c> writes in the console OEM code page, so the provider is registered
+    /// before the code page is resolved. Without that, decoding throws
+    /// NotSupportedException and the whole operation fails for a reason unrelated to
+    /// the service.
+    /// </remarks>
+    private static (int ExitCode, string Output) RunSc(string arguments)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "sc.exe",
+                Arguments = arguments,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Interop.ConsoleEncoding.Oem,
+                StandardErrorEncoding = Interop.ConsoleEncoding.Oem,
+            };
+
+            using var process = Process.Start(startInfo);
+
+            if (process is null)
+            {
+                return (-1, "无法启动 sc.exe。");
+            }
+
+            var stdout = process.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            return (process.ExitCode, stdout + stderr);
+        }
+        catch (Exception ex)
+        {
+            return (-1, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Finds the services whose process is <paramref name="processId"/>.
+    /// </summary>
+    /// <remarks>
+    /// Matched through the SCM rather than by image path, because several Seewo
+    /// services share one executable and the SCM knows which instance is which.
+    /// </remarks>
+    private static List<(string ServiceName, string DisplayName)> FindServicesForProcess(int processId)
+    {
+        var results = new List<(string, string)>();
+
+        try
+        {
+            // Win32_Service exposes ProcessId and is readable without elevation; the
+            // command is only issued for a match, and it fails cleanly without rights.
+            using var searcher = new System.Management.ManagementObjectSearcher(
+                $"SELECT Name, DisplayName, ProcessId FROM Win32_Service WHERE ProcessId = {processId}");
+
+            foreach (var service in searcher.Get())
+            {
+                using (service)
+                {
+                    var name = service["Name"]?.ToString();
+                    var display = service["DisplayName"]?.ToString();
+
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        results.Add((name, string.IsNullOrWhiteSpace(display) ? name : display));
+                    }
+                }
+            }
+        }
+        catch (System.Management.ManagementException)
+        {
+            // WMI unavailable or access denied; the caller still terminates the process.
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return results;
     }
 
     /// <summary>Terminates every process matching a rule.</summary>

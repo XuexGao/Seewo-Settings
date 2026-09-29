@@ -273,6 +273,42 @@
                 </StackPanel>
             </Border>
 
+            <!-- Desktop tidying. Kept on this page because it is the same kind of
+                 "control what is visible right now" action as the alert settings above,
+                 and it needs no configuration. -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="一键隐藏桌面窗口" Style="{StaticResource CardTitleStyle}" />
+                    <TextBlock Style="{StaticResource CardBodyStyle}"
+                               Text="隐藏当前所有程序窗口，只保留 Windows 自身的界面（任务栏、桌面、输入法和辅助功能）。窗口不会被关闭，随时可以恢复。适合上课或演示前快速清屏。" />
+
+                    <InfoBar x:Name="HideWindowsInfoBar"
+                             IsOpen="False"
+                             IsClosable="False"
+                             Severity="Informational" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="HideWindowsButton"
+                                Click="OnHideWindows"
+                                Style="{StaticResource AccentButtonStyle}"
+                                AutomationProperties.Name="隐藏所有窗口">
+                            <TextBlock Text="隐藏所有窗口" />
+                        </Button>
+
+                        <Button x:Name="RestoreWindowsButton"
+                                Click="OnRestoreWindows"
+                                AutomationProperties.Name="恢复所有窗口">
+                            <TextBlock Text="恢复所有窗口" />
+                        </Button>
+                    </StackPanel>
+
+                    <TextBlock x:Name="HiddenWindowsStatusText"
+                               Style="{StaticResource CardBodyStyle}"
+                               FontSize="12"
+                               Text="尚未隐藏任何窗口。" />
+                </StackPanel>
+            </Border>
+
         </StackPanel>
     </ScrollViewer>
 </local:ModulePageBase>

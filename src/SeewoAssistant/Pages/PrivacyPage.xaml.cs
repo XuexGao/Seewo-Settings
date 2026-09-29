@@ -49,6 +49,11 @@ public sealed partial class PrivacyPage : ModulePageBase
         SeedActivityFromMonitor();
         UpdateState();
 
+        // The hiding state lives in the service, not in settings, so it must be read
+        // back rather than assumed: navigating away and returning must not show
+        // "尚未隐藏" while the desktop is in fact still hidden.
+        UpdateHiddenWindowsStatus();
+
         Services.PrivacyMonitor.UsageDetected += OnUsageDetected;
     }
 
@@ -293,6 +298,104 @@ public sealed partial class PrivacyPage : ModulePageBase
 
         Services.Settings.PrivacyPlaySound = PlaySoundToggle.IsOn;
         PersistSetting(PlaySoundToggle.IsOn ? "已开启提示音。" : "已关闭提示音。");
+    }
+
+    // ------------------------------------------------------------------ desktop tidy
+
+    /// <summary>
+    /// Hides every application window, leaving the Windows shell and accessibility
+    /// surfaces alone.
+    /// </summary>
+    /// <remarks>
+    /// This enumerates and hides windows, which is fast but not instant, so it runs off
+    /// the UI thread. The service is the only thing that decides what counts as a
+    /// system window; the page does not second-guess it.
+    /// </remarks>
+    private async void OnHideWindows(object sender, RoutedEventArgs e)
+    {
+        HideWindowsButton.IsEnabled = false;
+
+        try
+        {
+            var hidden = await Task.Run(() => Services.WindowHider.HideAll());
+
+            if (hidden == 0)
+            {
+                ShowHideResult(
+                    "没有找到可以隐藏的窗口。桌面上可能本来就没有打开其他程序。",
+                    InfoBarSeverity.Informational);
+            }
+            else
+            {
+                ShowHideResult(
+                    $"已隐藏 {hidden} 个窗口。任务栏、桌面和系统界面保持可见。",
+                    InfoBarSeverity.Success);
+
+                Report($"已隐藏 {hidden} 个窗口。点击「恢复所有窗口」可以全部还原。", StatusSeverity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            Services.Logger.Error("Hiding desktop windows failed.", ex);
+            ShowHideResult($"隐藏窗口失败：{ex.Message}", InfoBarSeverity.Error);
+        }
+        finally
+        {
+            HideWindowsButton.IsEnabled = true;
+            UpdateHiddenWindowsStatus();
+        }
+    }
+
+    private async void OnRestoreWindows(object sender, RoutedEventArgs e)
+    {
+        RestoreWindowsButton.IsEnabled = false;
+
+        try
+        {
+            var restored = await Task.Run(() => Services.WindowHider.Restore());
+
+            ShowHideResult(
+                restored == 0 ? "没有需要恢复的窗口。" : $"已恢复 {restored} 个窗口。",
+                restored == 0 ? InfoBarSeverity.Informational : InfoBarSeverity.Success);
+
+            if (restored > 0)
+            {
+                Report($"已恢复 {restored} 个窗口。", StatusSeverity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            Services.Logger.Error("Restoring desktop windows failed.", ex);
+            ShowHideResult($"恢复窗口失败：{ex.Message}", InfoBarSeverity.Error);
+        }
+        finally
+        {
+            RestoreWindowsButton.IsEnabled = true;
+            UpdateHiddenWindowsStatus();
+        }
+    }
+
+    private void ShowHideResult(string message, InfoBarSeverity severity)
+    {
+        HideWindowsInfoBar.Message = message;
+        HideWindowsInfoBar.Severity = severity;
+        HideWindowsInfoBar.IsOpen = true;
+    }
+
+    /// <summary>Refreshes the status line and which of the two buttons makes sense.</summary>
+    private void UpdateHiddenWindowsStatus()
+    {
+        var isHidden = Services.WindowHider.IsHidden;
+        var count = Services.WindowHider.HiddenCount;
+
+        HiddenWindowsStatusText.Text = isHidden
+            ? $"当前隐藏了 {count} 个窗口。"
+            : "尚未隐藏任何窗口。";
+
+        // Restore is only meaningful while something is hidden, and hiding again while
+        // already hidden would discard the record of what to restore.
+        RestoreWindowsButton.IsEnabled = isHidden;
+        HideWindowsButton.IsEnabled = !isHidden;
     }
 
     private void OnBannerSecondsChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
