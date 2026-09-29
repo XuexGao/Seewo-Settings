@@ -39,6 +39,24 @@ internal enum GuardCommandNative : uint
 /// creates the section, writes a request, signals the event, and polls
 /// <c>Completed</c> for the response.
 /// </summary>
+/// <summary>
+/// The namespace the payload must attach to, passed to it as its thread parameter.
+/// </summary>
+/// <remarks>
+/// Kept in sync with <c>kGuardNamespaceGlobal</c> / <c>kGuardNamespaceLocal</c> in
+/// native/SeewoCommon/SeewoIpc.h. Zero is deliberately not used: a NULL thread
+/// parameter is what an older injector passes, and the payload treats it as "probe for
+/// yourself" so the two versions stay compatible.
+/// </remarks>
+internal static class GuardChannelNamespace
+{
+    /// <summary>Attach to the machine-wide objects.</summary>
+    internal const int Global = 1;
+
+    /// <summary>Attach to the per-session objects.</summary>
+    internal const int Local = 2;
+}
+
 internal sealed class GuardChannel : IDisposable
 {
     // Must match native/SeewoCommon/SeewoIpc.h byte for byte, including the
@@ -80,6 +98,19 @@ internal sealed class GuardChannel : IDisposable
         }
     }
 
+    /// <summary>
+    /// True when the channel was opened in the machine-wide (Global) namespace.
+    /// </summary>
+    /// <remarks>
+    /// The payload runs inside the target process, so it must attach to the same
+    /// objects this side created. Telling it which namespace to use is the only way to
+    /// guarantee that: left to itself it probes Global first and, in a target that
+    /// happens to hold SeCreateGlobalPrivilege, creates a second set of objects instead
+    /// of opening ours. The two sides then wait on different events and the injection
+    /// appears to time out.
+    /// </remarks>
+    internal bool UsesGlobalNamespace { get; private set; }
+
     /// <summary>Opens the channel, creating the objects if this is the first use.</summary>
     internal bool Open()
     {
@@ -99,6 +130,9 @@ internal sealed class GuardChannel : IDisposable
 
     private bool TryOpen(string sectionName, string eventName, bool global)
     {
+        // Recorded before the attempt so a failure cannot leave a stale value behind.
+        UsesGlobalNamespace = global;
+
         var mapping = NativeMethods.CreateFileMappingW(
             new nint(-1), nint.Zero, NativeMethods.PAGE_READWRITE_MAP, 0, SectionBytes, sectionName);
 

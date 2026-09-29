@@ -72,32 +72,69 @@ void CompleteRequest(volatile seewo::GuardRequest* request,
 }
 
 // Attaches to the request channel. Returns false when it never appeared.
-bool AttachToChannel(seewo::ChannelHandle* channel, HANDLE* requestEvent) {
+//
+// `namespaceHint` is the value the injector passed as the remote thread parameter. It
+// names the namespace the injector actually used, which is the only way the two sides
+// can be guaranteed to meet: probing independently means a target that happens to hold
+// SeCreateGlobalPrivilege creates its own Global objects instead of opening the
+// injector's Local ones, and the injection then fails as a timeout.
+//
+// A hint of 0 means an injector that did not send one (an older build), in which case
+// the original probe order is used.
+bool AttachToChannel(uintptr_t namespaceHint, seewo::ChannelHandle* channel,
+                     HANDLE* requestEvent) {
+    const bool preferGlobal = namespaceHint != seewo::kGuardNamespaceLocal;
+    const bool hintIsExplicit = namespaceHint == seewo::kGuardNamespaceGlobal ||
+                                namespaceHint == seewo::kGuardNamespaceLocal;
+
+    const wchar_t* sectionName = preferGlobal ? seewo::kGuardSectionName
+                                              : seewo::kGuardLocalSectionName;
+    const wchar_t* eventName = preferGlobal ? seewo::kGuardRequestEventName
+                                            : seewo::kGuardLocalRequestEventName;
+
     const ULONGLONG deadline = ::GetTickCount64() + kChannelWaitMs;
 
     for (;;) {
         *channel = seewo::CreateOrOpenSharedSection(
-            seewo::kGuardSectionName, seewo::kGuardLocalSectionName,
+            sectionName,
+            preferGlobal ? seewo::kGuardLocalSectionName : seewo::kGuardSectionName,
             seewo::kGuardSectionBytes);
+
+        // When the injector told us which namespace it used, that namespace is the
+        // only correct answer: falling back to the other one would attach to objects
+        // the injector is not using, which is worse than failing, because the failure
+        // would be silent.
         if (channel->valid()) {
-            break;
+            if (hintIsExplicit && channel->usedGlobalNamespace != preferGlobal) {
+                channel->Close();
+            } else {
+                break;
+            }
         }
+
         if (::GetTickCount64() >= deadline) {
             return false;
         }
         ::Sleep(100);
     }
 
-    *requestEvent = seewo::CreateOrOpenSharedEvent(seewo::kGuardRequestEventName);
+    *requestEvent = seewo::CreateOrOpenSharedEvent(eventName);
+
+    // Fall back only when the injector did not tell us which namespace it used.
+    if (*requestEvent == nullptr && !hintIsExplicit) {
+        *requestEvent = seewo::CreateOrOpenSharedEvent(
+            preferGlobal ? seewo::kGuardLocalRequestEventName : seewo::kGuardRequestEventName);
+    }
+
     return *requestEvent != nullptr;
 }
 
 // The real payload body. Contains the only objects with destructors in this file.
-DWORD RunPayloadLoop() {
+DWORD RunPayloadLoop(uintptr_t namespaceHint) {
     seewo::ChannelHandle channel;
     HANDLE requestEvent = nullptr;
 
-    if (!AttachToChannel(&channel, &requestEvent)) {
+    if (!AttachToChannel(namespaceHint, &channel, &requestEvent)) {
         channel.Close();
         return 2;
     }
@@ -177,7 +214,9 @@ DWORD RunPayloadLoop() {
 }  // namespace
 
 extern "C" __declspec(dllexport) DWORD WINAPI SeewoCaptureGuardEntry(LPVOID reserved) {
-    (void)reserved;
+    // The injector passes the namespace it used as this thread's parameter, so both
+    // sides attach to the same objects. See AttachToChannel.
+    const uintptr_t namespaceHint = reinterpret_cast<uintptr_t>(reserved);
 
     // Only one loop per process. If the injector somehow calls in twice, the second
     // caller leaves immediately.
@@ -191,7 +230,7 @@ extern "C" __declspec(dllexport) DWORD WINAPI SeewoCaptureGuardEntry(LPVOID rese
     // legal here. Nothing in the payload may take the host process down, so every
     // unexpected fault is converted into an exit code.
     __try {
-        exitCode = RunPayloadLoop();
+        exitCode = RunPayloadLoop(namespaceHint);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         exitCode = 4;
     }

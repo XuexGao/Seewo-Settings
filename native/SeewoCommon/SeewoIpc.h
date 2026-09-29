@@ -97,6 +97,17 @@ inline constexpr wchar_t kGuardRequestEventName[] =
 inline constexpr wchar_t kGuardLocalRequestEventName[] =
     L"Local\\SeewoAssistant.CaptureGuard.Request.v1";
 
+// The namespace the injector used, passed to the payload as its thread parameter so
+// both sides attach to the same objects. Left to itself the payload probes Global
+// first and, inside a target that holds SeCreateGlobalPrivilege, creates a second set
+// of objects instead of opening the injector's - after which the two wait on different
+// events and the injection appears to time out.
+//
+// Zero is deliberately unused: a NULL thread parameter means "probe for yourself",
+// which is what an older injector passes, so a mismatched pair still works.
+inline constexpr uintptr_t kGuardNamespaceGlobal = 1;
+inline constexpr uintptr_t kGuardNamespaceLocal = 2;
+
 inline constexpr uint32_t kGuardMagic = 0x53434731;  // 'SCG1'
 inline constexpr uint32_t kGuardVersion = 1;
 inline constexpr uint32_t kGuardSectionBytes = 4096;

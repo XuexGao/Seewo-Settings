@@ -228,8 +228,20 @@ internal sealed class PayloadInjector
                 return ActionResult.Fail("在目标进程中找不到 SeewoCaptureGuardEntry 导出函数。");
             }
 
+            // The namespace is passed to the payload explicitly. Left to itself the
+            // payload probes Global first and, inside a target that holds
+            // SeCreateGlobalPrivilege, creates a second set of channel objects instead
+            // of opening the ones this side created - after which the two wait on
+            // different events and the injection looks like a timeout.
+            //
+            // The value is a small integer rather than a pointer so nothing has to be
+            // allocated in the target and no string has to be marshalled across.
+            var namespaceArgument = channel.UsesGlobalNamespace
+                ? GuardChannelNamespace.Global
+                : GuardChannelNamespace.Local;
+
             var entryThread = NativeMethods.CreateRemoteThread(
-                process, nint.Zero, 0, entryPoint, nint.Zero, 0, nint.Zero);
+                process, nint.Zero, 0, entryPoint, (nint)namespaceArgument, 0, nint.Zero);
 
             if (entryThread == nint.Zero)
             {
