@@ -126,16 +126,24 @@ public sealed class VirtualCameraService : IAsyncDisposable
         {
             return new VirtualCameraCapability(
                 VirtualCameraBackend.DirectShow, true,
-                "DirectShow 虚拟摄像头（Windows 10 兼容模式）",
-                "Windows 10 没有官方用户态虚拟摄像头 API（MFCreateVirtualCamera 需要 Windows 11 22000+）。" +
-                "这里使用 DirectShow 源滤镜作为替代：Zoom、OBS、QQ/微信、ffmpeg 等 DirectShow 应用可以看到它，" +
-                "但它不会出现在 Windows「设置」的摄像头列表里，UWP 应用也看不到。");
+                "DirectShow 虚拟摄像头（Windows 10 可用）",
+                "Windows 10 上可以使用。微软没有在 Windows 10 提供官方用户态虚拟摄像头 API" +
+                "（MFCreateVirtualCamera 是 Windows 11 内部版本 22000 才加入的），所以这里用 DirectShow " +
+                "源滤镜实现：注册之后，Zoom、OBS、QQ、微信、钉钉、ffmpeg、PotPlayer 等绝大多数常见软件" +
+                "都能在摄像头列表里选到它。\n\n" +
+                "需要注意的两点：它不会出现在 Windows「设置 → 蓝牙和其他设备 → 摄像头」里，" +
+                "UWP 应用（系统「相机」应用、部分商店应用）也看不到它。这是 Windows 10 方案的固有限制，" +
+                "不是安装失败。\n\n" +
+                "验证方法：安装后在命令行运行 " +
+                "ffmpeg -list_devices true -f dshow -i dummy，列表中应出现 " +
+                "「" + FriendlyName + "」。");
         }
 
         return new VirtualCameraCapability(
             VirtualCameraBackend.Unsupported, false,
             "系统版本过低",
-            "需要 Windows 10 版本 2004（内部版本 19041）或更高版本。");
+            "虚拟摄像头需要 Windows 10 版本 2004（内部版本 19041）或更高版本。" +
+            "当前系统版本低于该要求，因此没有可用的后端。");
     }
 
     /// <summary>
@@ -167,25 +175,270 @@ public sealed class VirtualCameraService : IAsyncDisposable
     /// <summary>True when the native setup tool is present next to the app.</summary>
     public bool IsSetupToolAvailable => File.Exists(SetupToolPath);
 
-    /// <summary>Registers the media source COM server. Requires elevation.</summary>
-    public Task<ActionResult> RegisterAsync(CancellationToken cancellationToken = default) =>
-        RunSetupAsync("install", cancellationToken);
+    /// <summary>
+    /// Registers whichever backend this machine can actually use.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This must dispatch on the detected backend. It previously always ran
+    /// <c>SeewoVirtualCamera.Setup.exe install</c>, which registers the Media
+    /// Foundation media source and then calls <c>MFCreateVirtualCamera</c>. On
+    /// Windows 10 that API does not exist, so the tool exited with code 3
+    /// ("unsupported") and the install button failed every time - the app was
+    /// unusable on the very system it was written for.
+    /// </para>
+    /// <para>
+    /// On Windows 10 the DirectShow filter is registered instead, via
+    /// <c>regsvr32</c> running its <c>DllRegisterServer</c>. That writes every
+    /// registry key a DirectShow capture device needs.
+    /// </para>
+    /// </remarks>
+    public Task<ActionResult> RegisterAsync(CancellationToken cancellationToken = default)
+    {
+        var capability = DetectCapability();
 
-    /// <summary>Unregisters the media source and removes every camera it created.</summary>
-    public Task<ActionResult> UnregisterAsync(CancellationToken cancellationToken = default) =>
-        RunSetupAsync("uninstall", cancellationToken);
+        return capability.Backend switch
+        {
+            VirtualCameraBackend.MediaFoundation => RunSetupAsync("install", cancellationToken),
+            VirtualCameraBackend.DirectShow => RegisterDirectShowAsync(cancellationToken),
+            _ => Task.FromResult(ActionResult.Fail(capability.Detail)),
+        };
+    }
 
-    /// <summary>Creates the camera instance so it becomes enumerable.</summary>
-    public Task<ActionResult> CreateCameraAsync(CancellationToken cancellationToken = default) =>
-        RunSetupAsync($"create --name \"{FriendlyName}\"", cancellationToken);
+    /// <summary>Unregisters whichever backend is in use.</summary>
+    public Task<ActionResult> UnregisterAsync(CancellationToken cancellationToken = default)
+    {
+        var capability = DetectCapability();
+
+        return capability.Backend switch
+        {
+            VirtualCameraBackend.MediaFoundation => RunSetupAsync("uninstall", cancellationToken),
+            VirtualCameraBackend.DirectShow => UnregisterDirectShowAsync(cancellationToken),
+            _ => Task.FromResult(ActionResult.Fail(capability.Detail)),
+        };
+    }
+
+    /// <summary>
+    /// Creates the camera instance so it becomes enumerable.
+    /// </summary>
+    /// <remarks>
+    /// Only the Media Foundation backend has a separate "instance" step: the DirectShow
+    /// filter is registered as a device in its own right, so there is nothing further
+    /// to create. Reporting success keeps the page's install flow identical on both
+    /// backends instead of making the user interpret a backend-specific error.
+    /// </remarks>
+    public Task<ActionResult> CreateCameraAsync(CancellationToken cancellationToken = default)
+    {
+        if (DetectCapability().Backend == VirtualCameraBackend.DirectShow)
+        {
+            return Task.FromResult(ActionResult.Ok(
+                "DirectShow 虚拟摄像头已注册为系统设备，无需额外创建实例。"));
+        }
+
+        return RunSetupAsync($"create --name \"{FriendlyName}\"", cancellationToken);
+    }
 
     /// <summary>Removes the camera instance from the system.</summary>
-    public Task<ActionResult> RemoveCameraAsync(CancellationToken cancellationToken = default) =>
-        RunSetupAsync("remove", cancellationToken);
+    public Task<ActionResult> RemoveCameraAsync(CancellationToken cancellationToken = default)
+    {
+        if (DetectCapability().Backend == VirtualCameraBackend.DirectShow)
+        {
+            // There is no instance to remove on this backend; uninstalling the filter
+            // is what removes the device.
+            return Task.FromResult(ActionResult.Ok(
+                "DirectShow 后端没有独立实例，如需移除设备请使用「完全卸载」。"));
+        }
+
+        return RunSetupAsync("remove", cancellationToken);
+    }
 
     /// <summary>Lists the cameras this app created.</summary>
     public Task<ActionResult> ListCamerasAsync(CancellationToken cancellationToken = default) =>
         RunSetupAsync("list", cancellationToken);
+
+    /// <summary>
+    /// Name of the 64-bit DirectShow filter, which is what a 64-bit consumer loads.
+    /// </summary>
+    private const string DirectShowDllName64 = "SeewoVirtualCamera.DShow.dll";
+
+    /// <summary>
+    /// Locates the DirectShow filter for the requested architecture.
+    /// </summary>
+    /// <remarks>
+    /// The release ships an x64 and an x86 filter. A 64-bit application loads only the
+    /// x64 one and a 32-bit application only the x86 one, so both are registered -
+    /// otherwise the camera is invisible to half the software on the machine, which is
+    /// exactly the kind of half-working state that is hard to diagnose.
+    /// </remarks>
+    private string? ResolveDirectShowDll(string architecture)
+    {
+        string[] candidates =
+        [
+            Path.Combine(ToolsDirectory, "native", architecture, DirectShowDllName64),
+            Path.Combine(ToolsDirectory, architecture, DirectShowDllName64),
+            Path.Combine(ToolsDirectory, DirectShowDllName64),
+        ];
+
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Registers the DirectShow filter, for both architectures when available.
+    /// </summary>
+    /// <remarks>
+    /// <c>regsvr32</c> runs the filter's <c>DllRegisterServer</c>, which writes the
+    /// CLSID keys, the friendly name and the capture-source category entry. That is the
+    /// whole registration - there is no separate camera instance to create, unlike the
+    /// Media Foundation backend.
+    /// </remarks>
+    private async Task<ActionResult> RegisterDirectShowAsync(CancellationToken cancellationToken)
+    {
+        // The native filter is registered by the tool when it is present, because the
+        // tool already knows the release layout and reports proper exit codes. This
+        // path covers the case where the tool is missing but the DLL is not.
+        var results = new List<string>();
+        var anyRegistered = false;
+        var failures = new List<string>();
+
+        foreach (var architecture in new[] { "x64", "x86" })
+        {
+            var dll = ResolveDirectShowDll(architecture);
+
+            if (dll is null)
+            {
+                // The x86 filter is optional: a 64-bit-only install still works for
+                // 64-bit applications, so this is a note rather than a failure.
+                results.Add($"{architecture}：未找到 DirectShow 滤镜（已跳过）");
+                continue;
+            }
+
+            var (exitCode, output) = await RunProcessAsync(
+                "regsvr32.exe",
+                $"/s \"{dll}\"",
+                cancellationToken).ConfigureAwait(false);
+
+            if (exitCode == 0)
+            {
+                anyRegistered = true;
+                results.Add($"{architecture}：已注册");
+            }
+            else
+            {
+                failures.Add($"{architecture}：regsvr32 退出码 {exitCode}{FormatOutput(output)}");
+            }
+        }
+
+        if (failures.Count > 0)
+        {
+            return ActionResult.Fail(
+                "DirectShow 虚拟摄像头注册失败。" + string.Join("；", failures) +
+                "。注册需要管理员权限，请以管理员身份重新运行本程序。");
+        }
+
+        if (!anyRegistered)
+        {
+            return ActionResult.Fail(
+                $"未找到 {DirectShowDllName64}。请确认发行包完整，或运行 scripts\\Install-Native.ps1。");
+        }
+
+        _logger.Info($"DirectShow virtual camera registered. {string.Join("; ", results)}");
+
+        return ActionResult.Ok(
+            "DirectShow 虚拟摄像头已注册（" + string.Join("，", results) + "）。" +
+            "它不会出现在 Windows「设置」的摄像头列表中，但 Zoom、OBS、微信、ffmpeg 等应用可以使用。");
+    }
+
+    /// <summary>Unregisters the DirectShow filter for both architectures.</summary>
+    private async Task<ActionResult> UnregisterDirectShowAsync(CancellationToken cancellationToken)
+    {
+        var messages = new List<string>();
+
+        foreach (var architecture in new[] { "x64", "x86" })
+        {
+            var dll = ResolveDirectShowDll(architecture);
+
+            if (dll is null)
+            {
+                continue;
+            }
+
+            var (exitCode, _) = await RunProcessAsync(
+                "regsvr32.exe",
+                $"/u /s \"{dll}\"",
+                cancellationToken).ConfigureAwait(false);
+
+            messages.Add($"{architecture}：{(exitCode == 0 ? "已注销" : $"退出码 {exitCode}")}");
+        }
+
+        if (messages.Count == 0)
+        {
+            return ActionResult.Fail($"未找到 {DirectShowDllName64}。");
+        }
+
+        _logger.Info($"DirectShow virtual camera unregistered. {string.Join("; ", messages)}");
+
+        return ActionResult.Ok("已注销 DirectShow 虚拟摄像头（" + string.Join("，", messages) + "）。");
+    }
+
+    /// <summary>Renders captured output for an error message, or nothing when empty.</summary>
+    private static string FormatOutput(string output) =>
+        string.IsNullOrWhiteSpace(output) ? string.Empty : $"：{output.Trim()}";
+
+    /// <summary>Runs a process and returns its exit code and combined output.</summary>
+    private static async Task<(int ExitCode, string Output)> RunProcessAsync(
+        string fileName,
+        string arguments,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardErrorEncoding = System.Text.Encoding.UTF8,
+            };
+
+            using var process = Process.Start(startInfo);
+
+            if (process is null)
+            {
+                return (-1, $"无法启动 {fileName}");
+            }
+
+            var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            var stderr = await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+
+            var combined = string.Join(
+                Environment.NewLine,
+                new[] { stdout, stderr }.Where(s => !string.IsNullOrWhiteSpace(s)));
+
+            return (process.ExitCode, combined);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return (-1, ex.Message);
+        }
+    }
 
     private async Task<ActionResult> RunSetupAsync(string arguments, CancellationToken cancellationToken)
     {

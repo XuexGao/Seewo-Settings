@@ -101,15 +101,18 @@ public sealed partial class VirtualCameraPage : ModulePageBase
             : InfoBarSeverity.Error;
         BackendInfoBar.IsOpen = true;
 
-        // The setup tool only exists in a packaged release. Saying so up front beats
-        // letting the buttons fail one by one.
+        // Install and uninstall are always offered when the backend is usable. The
+        // Media Foundation backend needs the setup tool, but the DirectShow backend
+        // registers its filter with regsvr32 and does not - gating everything on the
+        // tool made the button dead on Windows 10 even though registration would have
+        // worked.
         var hasTool = Services.VirtualCamera.IsSetupToolAvailable;
-        InstallButton.IsEnabled = hasTool;
-        CreateButton.IsEnabled = hasTool;
-        RemoveButton.IsEnabled = hasTool;
-        UninstallButton.IsEnabled = hasTool;
+        var isMediaFoundation = capability.Backend == VirtualCameraBackend.MediaFoundation;
 
-        if (!hasTool)
+        // One source of truth for the button rules.
+        SetSetupButtonsEnabled(true);
+
+        if (isMediaFoundation && !hasTool)
         {
             SetupOutputText.Text =
                 $"未找到 SeewoVirtualCamera.Setup.exe（查找目录：{Services.VirtualCamera.ToolsDirectory}）。\n" +
@@ -237,15 +240,33 @@ public sealed partial class VirtualCameraPage : ModulePageBase
         }
     }
 
+    /// <summary>
+    /// Applies the enable/disable state for the setup buttons.
+    /// </summary>
+    /// <remarks>
+    /// The rules live here alone. They were previously written out twice, and the second
+    /// copy still used the old "needs the setup tool" rule - so the backend-aware gating
+    /// was silently undone as soon as any button was pressed.
+    /// </remarks>
     private void SetSetupButtonsEnabled(bool enabled)
     {
+        var capability = Services.VirtualCamera.DetectCapability();
         var hasTool = Services.VirtualCamera.IsSetupToolAvailable;
+        var isMediaFoundation = capability.Backend == VirtualCameraBackend.MediaFoundation;
 
-        InstallButton.IsEnabled = enabled && hasTool;
-        CreateButton.IsEnabled = enabled && hasTool;
-        RemoveButton.IsEnabled = enabled && hasTool;
-        UninstallButton.IsEnabled = enabled && hasTool;
-        ListButton.IsEnabled = enabled && hasTool;
+        // Both backends can be installed and removed, but only Media Foundation needs
+        // the native tool to do it.
+        var canManage = enabled && capability.IsSupported && (!isMediaFoundation || hasTool);
+
+        InstallButton.IsEnabled = canManage;
+        UninstallButton.IsEnabled = canManage;
+
+        // A camera instance is a Media Foundation concept only.
+        var canManageInstance = canManage && isMediaFoundation;
+
+        CreateButton.IsEnabled = canManageInstance;
+        RemoveButton.IsEnabled = canManageInstance;
+        ListButton.IsEnabled = canManageInstance;
     }
 
     private void AppendOutput(string message)
