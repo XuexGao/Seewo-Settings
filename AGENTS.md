@@ -217,7 +217,53 @@ exe 放在根目录、DLL 只放在 `native/x64/` 时，安装永远失败（「
 即使是 `WindowsPackageType=None` 的非打包应用，单文件发布也需要它来生成嵌入的
 `resources.pri`。关掉会直接编译失败。
 
-### 11. 不要给原生 `.def` 文件写 `LIBRARY`
+### 11. 后端选择必须贯穿到底
+
+「按系统版本选后端」不能只在探测函数里做。这个项目踩过两次：
+
+- **注册**：`RegisterAsync` 一律跑 `Setup.exe install`（MF 路径），Windows 10 上
+  `MFCreateVirtualCamera` 不存在，工具返回 3，安装 100% 失败。
+- **按钮可用性**：同一套判断写了两遍，第二遍仍用旧规则，于是后端感知的逻辑在
+  任意按钮按下后就被悄悄改回去了。
+
+**规则：** 任何与后端相关的行为都要 `switch (DetectCapability().Backend)`；
+判断只写一处，其他地方调用它。
+
+### 12. 跨进程共享对象的命名空间必须显式协商
+
+注入器和载荷**不能各自独立探测命名空间**。注入器通常非提权，`Global\` 建不出来只能
+退到 `Local\`；载荷若先试 `Global\`，在恰好有 `SeCreateGlobalPrivilege` 的目标进程里
+会**新建自己的** `Global\` 对象，于是两边各自等一个永远不会被 signal 的事件。
+
+现象是「载荷已加载但没有响应」/ 超时，而且**只在部分目标上失败**，取决于目标权限——
+最难查的一类间歇性问题。
+
+**规则：** 注入器把自己用的命名空间通过 `CreateRemoteThread` 的参数传给载荷；
+`0` 表示「没有提示」（旧版注入器），载荷才回退到自行探测。
+
+### 13. Toast 有硬性元素上限和场景前提
+
+`ToastGeneric` 模板**最多 3 个文本元素**，第 4 个会让 `BuildNotification()` 抛
+`ArgumentException`，消息是「Maximum number of text elements added」。曾因此把标题、
+正文、时间、进程 ID 加成 4 条，导致**恰恰在解析出 PID（也就是最需要提醒）时通知失败**。
+
+`AppNotificationScenario.Urgent` 还有两个前提：**至少一个按钮**，以及**音频元素必须存在**
+（静音要用 `MuteAudio()`，直接不加音频元素会被拒绝）。另外不是所有系统都支持 urgent，
+要先问 `IsUrgentScenarioSupported()`（静态方法）。
+
+**规则：** 文本元素数 ≤ 3；先加按钮再设场景；用 `MuteAudio()` 静音；
+urgent 用 `IsUrgentScenarioSupported()` 把关。
+
+### 14. 结束服务托管的进程前必须先停服务
+
+Seewo 有些组件以 Windows 服务方式运行，进程归 SCM 所有。直接 `TerminateProcess`
+会被 SCM 当成异常退出并**立刻拉起替代进程**，所以「杀不掉」；重启时还会把依赖的服务
+一并带起来，就是用户看到的「把沉睡的进程喊醒了」。
+
+**规则：** `Terminate` 先用 `Win32_Service` 按 `ProcessId` 找到对应服务，
+`sc stop` 之后再结束进程。停不掉时要如实说明进程会回来，不要报一个不成立的「成功」。
+
+### 15. 不要给原生 `.def` 文件写 `LIBRARY`
 
 `LIBRARY` 会把 `/OUT:` 写进生成的 `.exp`，与实际输出路径不符，产生 `LNK4070`。
 `EXPORTS` 才是关键。
