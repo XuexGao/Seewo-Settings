@@ -205,11 +205,12 @@ public sealed class WindowHiderService
             return false;
         }
 
-        // This application's own window is hidden as well: the request is "hide
-        // everything except system programs", and this is not a system program. The tray
-        // icon is the way back, and its window is created with HWND_MESSAGE, so it is
-        // message-only and never appears in this enumeration.
-        // The desktop background and the taskbar are the only things that must stay:
+        // This application's own window is hidden along with everything else: the
+        // request is "hide everything except system programs", and this is not a system
+        // program. The tray icon is the way back, and its window is created with
+        // HWND_MESSAGE, so it is message-only and never appears in this enumeration.
+        //
+        // The desktop background and the taskbar are the only windows that must stay:
         // without them there is no way to interact with the machine at all.
         var className = GetClassName(hWnd);
 

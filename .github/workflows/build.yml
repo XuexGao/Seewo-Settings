@@ -265,7 +265,7 @@ jobs:
             @{ Name = 'Media Foundation 虚拟摄像头'; Path = 'artifacts/native/x64/Release/SeewoVirtualCamera.dll' },
             @{ Name = 'DirectShow 虚拟摄像头 (x64)';  Path = 'artifacts/native/x64/Release/SeewoVirtualCamera.DShow.dll' },
             @{ Name = 'DirectShow 虚拟摄像头 (x86)';  Path = 'artifacts/native/Win32/Release/SeewoVirtualCamera.DShow.dll' },
-            @{ Name = '虚拟摄像头安装工具';          Path = 'artifacts/native/x64/Release/SeewoVirtualCamera.Setup.exe' },
+            @{ Name = '虚拟摄像头安装工具';          Path = 'artifacts/native/x64/Release/SeewoVirtualCamera.Setup.exe' }
           )
 
           $missing = @()
