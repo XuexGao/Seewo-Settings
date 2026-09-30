@@ -69,8 +69,8 @@
 > 这是操作系统的硬性规定。因此：
 >
 > - **本程序自己的窗口**：稳定可用，不需要注入，不会被安全软件拦截
-> - **其他程序的窗口**：需要注入一小段载荷 DLL，默认**关闭**，需手动开启。开启后仍可能
->   被杀毒软件拦截，或因为目标进程权限更高而失败
+> - **其他程序的窗口**：需要在目标进程内执行一次调用（Windows 只允许进程操作自己的窗口），
+>   默认**关闭**，需手动开启。开启后仍可能被杀毒软件拦截，或因为目标进程权限更高而失败
 >
 > 界面里把这一点写在了最显眼的位置，不会让人误以为它对所有窗口都有效。
 
@@ -178,8 +178,6 @@ msbuild native/SeewoVirtualCamera/SeewoVirtualCamera.vcxproj /p:Configuration=Re
 msbuild native/SeewoVirtualCamera.DShow/SeewoVirtualCamera.DShow.vcxproj /p:Configuration=Release /p:Platform=x64
 msbuild native/SeewoVirtualCamera.DShow/SeewoVirtualCamera.DShow.vcxproj /p:Configuration=Release /p:Platform=Win32
 msbuild native/SeewoVirtualCamera.Setup/SeewoVirtualCamera.Setup.vcxproj /p:Configuration=Release /p:Platform=x64
-msbuild native/SeewoCaptureGuard.Payload/SeewoCaptureGuard.Payload.vcxproj /p:Configuration=Release /p:Platform=x64
-msbuild native/SeewoCaptureGuard.Payload/SeewoCaptureGuard.Payload.vcxproj /p:Configuration=Release /p:Platform=Win32
 
 # 测试
 dotnet test src/SeewoAssistant.Tests/SeewoAssistant.Tests.csproj -c Release
@@ -214,7 +212,7 @@ CI 分成两个 workflow，因为「能编译」和「能用」是两回事：
 - **不做**任何数据上传。程序没有网络客户端，除防火墙规则外不发起任何连接。
 - **不修改**系统文件、不写驱动、不装服务、不常驻开机自启（除非你在设置里显式开启）。
 - 跨进程注入**默认关闭**，开启时需二次确认，且只对显式选中的**单个**窗口生效。
-- 注入的载荷 DLL 会**自我卸载**，宿主进程不留残留；有 10 分钟生命周期上限。
+- 跨进程调用只写入约 30 字节的一次性机器码，调用返回后**立即释放**，目标进程不留任何常驻代码或数据。
 - 退出程序时会**自动恢复所有被挂起的进程**。
 - 配置、日志和崩溃报告都在 `%LOCALAPPDATA%\SeewoAssistant`，卸载脚本不会自动删除。
 
@@ -236,7 +234,6 @@ Seewo-Settings/
 │  ├─ SeewoVirtualCamera/      MF 自定义媒体源
 │  ├─ SeewoVirtualCamera.DShow/ DirectShow 源滤镜
 │  ├─ SeewoVirtualCamera.Setup/ 注册与摄像头管理工具
-│  └─ SeewoCaptureGuard.Payload/ 防截屏注入载荷
 ├─ scripts/Install-Native.ps1  安装 / 卸载 / 状态查询
 ├─ .github/workflows/          build.yml（构建）、test.yml（验证）
 ├─ AGENTS.md                   实现细节与开发指南
@@ -293,8 +290,8 @@ Windows 11 上如果看不到，运行 `SeewoVirtualCamera.Setup.exe list` 检�
 要完全退出，右键托盘图标选择「退出」。
 
 **Q：跨进程防截屏提示被杀软拦截？**
-这是该技术的固有代价。可以尝试把 `SeewoCaptureGuard.Payload.dll` 加入杀软白名单、
-以管理员身份运行，或只使用本程序窗口保护（那条路径永远可用且零风险）。
+这是该技术的固有代价。可以尝试以管理员身份运行，或只使用本程序窗口保护
+（那条路径永远可用且零风险）。
 
 **Q：程序崩溃了，怎么反馈？**
 崩溃时程序会在 `%LOCALAPPDATA%\SeewoAssistant\crashes` 下生成一份自包含的报告，

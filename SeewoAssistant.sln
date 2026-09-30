@@ -14,7 +14,6 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SeewoVirtualCamera.DShow", 
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SeewoVirtualCamera.Setup", "native\SeewoVirtualCamera.Setup\SeewoVirtualCamera.Setup.vcxproj", "{7E2A9F44-3B81-4C6D-A5E9-1F8B2C3D4E56}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SeewoCaptureGuard.Payload", "native\SeewoCaptureGuard.Payload\SeewoCaptureGuard.Payload.vcxproj", "{4C1D8E77-9A2B-4F31-B6C5-8D7E9F0A1B23}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -62,13 +61,6 @@ Global
 		{7E2A9F44-3B81-4C6D-A5E9-1F8B2C3D4E56}.Release|x64.ActiveCfg = Release|x64
 		{7E2A9F44-3B81-4C6D-A5E9-1F8B2C3D4E56}.Release|x64.Build.0 = Release|x64
 		{7E2A9F44-3B81-4C6D-A5E9-1F8B2C3D4E56}.Release|x86.ActiveCfg = Release|x64
-		{4C1D8E77-9A2B-4F31-B6C5-8D7E9F0A1B23}.Debug|x64.ActiveCfg = Debug|x64
-		{4C1D8E77-9A2B-4F31-B6C5-8D7E9F0A1B23}.Debug|x64.Build.0 = Debug|x64
-		{4C1D8E77-9A2B-4F31-B6C5-8D7E9F0A1B23}.Debug|x86.ActiveCfg = Debug|Win32
-		{4C1D8E77-9A2B-4F31-B6C5-8D7E9F0A1B23}.Release|x64.ActiveCfg = Release|x64
-		{4C1D8E77-9A2B-4F31-B6C5-8D7E9F0A1B23}.Release|x64.Build.0 = Release|x64
-		{4C1D8E77-9A2B-4F31-B6C5-8D7E9F0A1B23}.Release|x86.ActiveCfg = Release|Win32
-		{4C1D8E77-9A2B-4F31-B6C5-8D7E9F0A1B23}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

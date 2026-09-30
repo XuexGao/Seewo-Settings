@@ -30,7 +30,6 @@ native/SeewoCommon/          跨语言契约的唯一真源（SeewoIpc.h）
 native/SeewoVirtualCamera/   MF 自定义媒体源（Win11）
 native/SeewoVirtualCamera.DShow/  DirectShow 源滤镜（Win10 回退）
 native/SeewoVirtualCamera.Setup/  注册 + 摄像头管理 + 取帧 CLI
-native/SeewoCaptureGuard.Payload/ 跨进程防截屏注入载荷
 scripts/                     用户脚本
 scripts/ci/                  CI 专用脚本
 .github/workflows/build.yml  编译、打包、发 Release
@@ -58,8 +57,6 @@ msbuild native/SeewoVirtualCamera/SeewoVirtualCamera.vcxproj /p:Configuration=Re
 msbuild native/SeewoVirtualCamera.DShow/SeewoVirtualCamera.DShow.vcxproj /p:Configuration=Release /p:Platform=x64
 msbuild native/SeewoVirtualCamera.DShow/SeewoVirtualCamera.DShow.vcxproj /p:Configuration=Release /p:Platform=Win32
 msbuild native/SeewoVirtualCamera.Setup/SeewoVirtualCamera.Setup.vcxproj /p:Configuration=Release /p:Platform=x64
-msbuild native/SeewoCaptureGuard.Payload/SeewoCaptureGuard.Payload.vcxproj /p:Configuration=Release /p:Platform=x64
-msbuild native/SeewoCaptureGuard.Payload/SeewoCaptureGuard.Payload.vcxproj /p:Configuration=Release /p:Platform=Win32
 
 # 托管
 dotnet build src/SeewoAssistant.Core/SeewoAssistant.Core.csproj -c Release
@@ -197,7 +194,7 @@ MSVC 默认按**系统 ANSI 代码页**读取源文件。本仓库的源文件�
 
 所有原生项目都用 `/MT`（`MultiThreaded`）。发行包承诺「解压即用、无需安装运行时」，
 用 `/MD` 就会依赖 VC++ 可再发行组件，缺失时报错是「找不到 VCRUNTIME140.dll」。
-注入载荷更必须用 `/MT`，因为它要注入到可能没装运行时的进程里。
+现在没有常驻注入的 DLL 了，但这条仍然适用于所有原生组件。
 
 ### 8. MSBuild 的 `SolutionDir` 不可靠
 
@@ -229,19 +226,7 @@ exe 放在根目录、DLL 只放在 `native/x64/` 时，安装永远失败（「
 **规则：** 任何与后端相关的行为都要 `switch (DetectCapability().Backend)`；
 判断只写一处，其他地方调用它。
 
-### 12. 跨进程共享对象的命名空间必须显式协商
-
-注入器和载荷**不能各自独立探测命名空间**。注入器通常非提权，`Global\` 建不出来只能
-退到 `Local\`；载荷若先试 `Global\`，在恰好有 `SeCreateGlobalPrivilege` 的目标进程里
-会**新建自己的** `Global\` 对象，于是两边各自等一个永远不会被 signal 的事件。
-
-现象是「载荷已加载但没有响应」/ 超时，而且**只在部分目标上失败**，取决于目标权限——
-最难查的一类间歇性问题。
-
-**规则：** 注入器把自己用的命名空间通过 `CreateRemoteThread` 的参数传给载荷；
-`0` 表示「没有提示」（旧版注入器），载荷才回退到自行探测。
-
-### 13. Toast 有硬性元素上限和场景前提
+### 12. Toast 有硬性元素上限和场景前提
 
 `ToastGeneric` 模板**最多 3 个文本元素**，第 4 个会让 `BuildNotification()` 抛
 `ArgumentException`，消息是「Maximum number of text elements added」。曾因此把标题、
@@ -254,7 +239,7 @@ exe 放在根目录、DLL 只放在 `native/x64/` 时，安装永远失败（「
 **规则：** 文本元素数 ≤ 3；先加按钮再设场景；用 `MuteAudio()` 静音；
 urgent 用 `IsUrgentScenarioSupported()` 把关。
 
-### 14. 结束服务托管的进程前必须先停服务
+### 13. 结束服务托管的进程前必须先停服务
 
 Seewo 有些组件以 Windows 服务方式运行，进程归 SCM 所有。直接 `TerminateProcess`
 会被 SCM 当成异常退出并**立刻拉起替代进程**，所以「杀不掉」；重启时还会把依赖的服务
@@ -262,6 +247,14 @@ Seewo 有些组件以 Windows 服务方式运行，进程归 SCM 所有。直接
 
 **规则：** `Terminate` 先用 `Win32_Service` 按 `ProcessId` 找到对应服务，
 `sc stop` 之后再结束进程。停不掉时要如实说明进程会回来，不要报一个不成立的「成功」。
+
+### 14. `ShowWindow` 的返回值不是「是否成功」
+
+`ShowWindow` 返回的是**窗口之前是否可见**。恢复一个被隐藏的窗口时它返回 `FALSE`，
+但这**正是成功的表现**。把它当成功标志会让计数恒为 0，界面显示「没有需要恢复的窗口」，
+而桌面其实还藏着。
+
+**规则：** `ShowWindow` 的返回值只用来判断「之前的状态」；需要知道新状态就另外查。
 
 ### 15. 不要给原生 `.def` 文件写 `LIBRARY`
 
@@ -273,16 +266,15 @@ Seewo 有些组件以 Windows 服务方式运行，进程归 SCM 所有。直接
 ## 跨语言契约
 
 `native/SeewoCommon/SeewoIpc.h` 是唯一真源，C# 侧在
-`VirtualCameraFrameChannel.cs`（`FrameChannelContract`）和 `GuardChannel.cs` 里镜像。
+`VirtualCameraFrameChannel.cs`（`FrameChannelContract`）里镜像。
 
-**两条通道：**
+**通道：**
 
 | 通道 | 共享节 | 事件 | 用途 |
 | --- | --- | --- | --- |
 | 虚拟摄像头帧 | `Global\SeewoAssistant.VCam.Frame.v1` | `Global\...DataReady.v1` | UI 写 BGRA 帧，媒体源读 |
-| 防截屏请求 | `Global\SeewoAssistant.CaptureGuard.v1` | `Global\...Request.v1` | 注入器发请求，载荷回结果 |
 
-两条都遵循同一模式：先试 `Global\`，失败回退 `Local\`（创建 `Global\` 对象需要
+它遵循以下模式：先试 `Global\`，失败回退 `Local\`（创建 `Global\` 对象需要
 `SeCreateGlobalPrivilege`，服务有、普通交互用户没有）。
 
 **改动契约时：**
@@ -341,25 +333,23 @@ UI 上必须说明这是正常的，否则用户会以为是故障。
 **内核限制：** `SetWindowDisplayAffinity` 只能作用于调用进程自己的窗口，跨进程调用被
 `win32kfull.sys` 拒绝（`ERROR_ACCESS_DENIED`）。这是设计使然。
 
-**为什么用 DLL 注入而不是 shellcode：** shellcode 不可调试、崩溃无堆栈，且正是杀软被训练
-要拦的模式。注入一个真实、可检查、自我卸载的 DLL 能力相同但可维护。
+**跨进程调用用一次性机器码桩，而不是常驻 DLL：** 早期实现注入一个常驻 DLL 并靠命名共享
+内存通道通信，有两个致命问题：两边必须就命名空间和内存布局达成一致，不一致时**不报错**，
+只是永远等不到回应（用户看到的是「超时」）；而且 DLL 会在第三方进程里驻留最多 10 分钟，
+正是杀软启发式规则针对的模式。现在改为写入约 30 字节的位置无关机器码，在目标进程里直接调用
+`SetWindowDisplayAffinity`，调用返回后立即释放。参考项目
+[lilith-is-all-you-need/NoMoreCapture](https://github.com/lilith-is-all-you-need/NoMoreCapture)
+用的就是这个方法，从 Windows 7 到 11 都能用且误报率很低。
 
-**载荷设计约束：**
+**桩的字节必须精确：** 32 位 15 字节，64 位 36 字节。64 位必须预留 32 字节 shadow space
+（`sub rsp, 0x28`）并保持 16 字节对齐，否则被调用方会覆盖调用者的栈帧，**目标进程直接崩溃**。
+`NativeInteropContractTests` 里固定了这些操作码。
 
-- `DllMain` 只调 `DisableThreadLibraryCalls`，不做任何实际工作（loader lock）
-- 真正入口是导出函数 `SeewoCaptureGuardEntry`，由 `CreateRemoteThread` 启动
-- 静态 CRT（`/MT`）
-- `FreeLibraryAndExitThread` 自我卸载，10 分钟生命周期上限
-- SEH 包裹（注意 `C2712`：带析构函数的对象和 `__try` 不能同函数，所以逻辑在独立函数里）
+**跨位数注入：** 目标是 32 位时，`SetWindowDisplayAffinity` 的地址 = 目标进程的
+`user32.dll` 基址 + **匹配位数的磁盘二进制**里该导出的 RVA。`PeExportReader` 就是为此存在的
+自包含 PE 解析器。位数探测优先用 `IsWow64Process2`。
 
-**跨位数注入：** 目标是 32 位时，`LoadLibraryW` 的地址 = 目标进程的 `kernel32.dll` 基址 +
-**匹配位数的磁盘二进制**里该导出的 RVA。`PeExportReader` 就是为此存在的自包含 PE 解析器。
-位数探测优先用 `IsWow64Process2`。
-
-**`GetExitCodeThread` 只有 32 位**，装不下 64 位 `HMODULE`。不能拿远程线程退出码当模块句柄，
-必须枚举目标进程模块。
-
-**注入不能在 UI 线程：** 它最多等载荷 10 秒。放在 UI 线程会冻结窗口，用户感知为「超时」。
+**注入不能在 UI 线程：** 它会等待远程线程完成。放在 UI 线程会冻结窗口。
 
 **安全护栏：** 硬编码拒绝 `dwm.exe`、`explorer.exe`、`csrss.exe`、`winlogon.exe`、
 `lsass.exe`、`services.exe`、`svchost.exe` 等（注入桌面合成器可能黑屏，注入关键进程会蓝屏）。

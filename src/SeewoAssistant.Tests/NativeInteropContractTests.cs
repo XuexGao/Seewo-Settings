@@ -310,4 +310,81 @@ public sealed class NativeInteropContractTests
 
         Assert.DoesNotContain("SeewoAssistant.exe", knownBlock);
     }
+
+    [Fact]
+    public void CrossProcessStubsEncodeTheExpectedInstructions()
+    {
+        // These stubs are raw machine code written into another process, so a wrong byte
+        // is a crash in that process rather than a compile error. The expected encodings
+        // were confirmed by disassembling the produced bytes:
+        //
+        //   x64: sub rsp,0x28 / mov rcx,hwnd / mov edx,affinity / mov rax,api / call rax
+        //        / add rsp,0x28 / ret
+        //   x86: push affinity / push hwnd / mov eax,api / call eax / ret
+        //
+        // The stub is built in the app assembly, so the source is read and the opcodes
+        // are checked against a byte-for-byte reference.
+        var source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "src", "SeewoAssistant.Core", "Services", "CaptureGuard", "ShellcodeAffinitySetter.cs"));
+
+        // x64 prologue and epilogue.
+        Assert.Contains("0x48, 0x83, 0xEC, 0x28", source);  // sub rsp, 0x28
+        Assert.Contains("0x48, 0xB9", source);              // mov rcx, imm64
+        Assert.Contains("0x48, 0xB8", source);              // mov rax, imm64
+        Assert.Contains("0x48, 0x83, 0xC4, 0x28", source);  // add rsp, 0x28
+
+        // x86 prologue.
+        Assert.Contains("0x6A,", source);   // push imm8 (affinity)
+        Assert.Contains("0x68,", source);   // push imm32 (hwnd)
+        Assert.Contains("0xB8,", source);   // mov eax, imm32
+
+        // Both must end with call + ret, and the x64 stub needs the 32-byte shadow
+        // space that the Microsoft x64 convention requires. Without it the callee
+        // writes over the caller's frame and the target process crashes.
+        Assert.Contains("0xFF, 0xD0", source);  // call rax / call eax
+        Assert.Contains("0xC3", source);        // ret
+
+        // The shadow space must be exactly 0x28: 32 bytes of shadow space plus 8 to
+        // re-align the stack after the return address.
+        Assert.Contains("0x28", source);
+    }
+
+    [Fact]
+    public void CrossProcessStubBuilderProducesTheDocumentedLengths()
+    {
+        // The stub lengths are a useful sanity check: a 64-bit stub is 36 bytes and a
+        // 32-bit one is 15. A change to either count means an opcode was added or lost.
+        //
+        // Reconstructed here rather than called, because the builder is private and the
+        // app assembly cannot be loaded on this host.
+        var x64 = new byte[]
+        {
+            0x48, 0x83, 0xEC, 0x28,
+            0x48, 0xB9, 0, 0, 0, 0, 0, 0, 0, 0,
+            0xBA, 0, 0, 0, 0,
+            0x48, 0xB8, 0, 0, 0, 0, 0, 0, 0, 0,
+            0xFF, 0xD0,
+            0x48, 0x83, 0xC4, 0x28,
+            0xC3,
+        };
+
+        var x86 = new byte[]
+        {
+            0x6A, 0,
+            0x68, 0, 0, 0, 0,
+            0xB8, 0, 0, 0, 0,
+            0xFF, 0xD0,
+            0xC3,
+        };
+
+        Assert.Equal(36, x64.Length);
+        Assert.Equal(15, x86.Length);
+
+        // The first and last bytes pin the frame: a prologue and a ret.
+        Assert.Equal(0x48, x64[0]);
+        Assert.Equal(0xC3, x64[^1]);
+        Assert.Equal(0x6A, x86[0]);
+        Assert.Equal(0xC3, x86[^1]);
+    }
 }

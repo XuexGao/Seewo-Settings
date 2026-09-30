@@ -233,6 +233,11 @@ internal static class NativeMethods
     internal const uint MEM_RESERVE = 0x2000;
     internal const uint MEM_RELEASE = 0x8000;
     internal const uint PAGE_READWRITE = 0x04;
+
+    /// <summary>
+    /// Read/write/execute pages, needed to place a machine-code stub in another process.
+    /// </summary>
+    internal const uint PAGE_EXECUTE_READWRITE = 0x40;
     internal const uint INFINITE = 0xFFFFFFFF;
     internal const uint WAIT_OBJECT_0 = 0x0;
 

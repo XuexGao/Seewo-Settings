@@ -39,6 +39,8 @@ internal sealed class TrayIcon : IDisposable
     private const int MenuOpen = 1001;
     private const int MenuTogglePrivacy = 1002;
     private const int MenuToggleCamera = 1003;
+    private const int MenuHideWindows = 1004;
+    private const int MenuRestoreWindows = 1005;
     private const int MenuExit = 1099;
 
     private static readonly object ClassGate = new();
@@ -67,6 +69,9 @@ internal sealed class TrayIcon : IDisposable
 
     /// <summary>Raised when the user toggles the virtual camera from the menu.</summary>
     internal event EventHandler? ToggleCameraRequested;
+
+    /// <summary>Raised when the user asks to hide or restore desktop windows.</summary>
+    internal event EventHandler<bool>? HideWindowsRequested;
 
     /// <summary>Text shown when hovering the icon.</summary>
     internal string Tooltip { get; set; } = "希沃助手";
@@ -229,6 +234,14 @@ internal sealed class TrayIcon : IDisposable
                 _instance?.ToggleCameraRequested?.Invoke(_instance, EventArgs.Empty);
                 break;
 
+            case MenuHideWindows:
+                _instance?.HideWindowsRequested?.Invoke(_instance, true);
+                break;
+
+            case MenuRestoreWindows:
+                _instance?.HideWindowsRequested?.Invoke(_instance, false);
+                break;
+
             case MenuExit:
                 _instance?.ExitRequested?.Invoke(_instance, EventArgs.Empty);
                 break;
@@ -250,6 +263,13 @@ internal sealed class TrayIcon : IDisposable
             AppendMenuW(menu, MF_SEPARATOR, 0, null);
             AppendMenuW(menu, MF_STRING, MenuTogglePrivacy, "开关摄像头/麦克风监控");
             AppendMenuW(menu, MF_STRING, MenuToggleCamera, "开关虚拟摄像头");
+            AppendMenuW(menu, MF_SEPARATOR, 0, null);
+
+            // Hide and restore live in the tray menu, not only on the page. Hiding
+            // takes the app's own window away as well, so the tray is the one place the
+            // user can always reach to undo it.
+            AppendMenuW(menu, MF_STRING, MenuHideWindows, "隐藏所有窗口");
+            AppendMenuW(menu, MF_STRING, MenuRestoreWindows, "恢复所有窗口");
             AppendMenuW(menu, MF_SEPARATOR, 0, null);
             AppendMenuW(menu, MF_STRING, MenuExit, "退出");
 

@@ -214,27 +214,6 @@ jobs:
           /p:Configuration=Release /p:Platform=x64
           /m /v:minimal /nologo
 
-      - name: Build the capture guard payload (x64)
-        id: build_payload_x64
-        continue-on-error: true
-        run: >
-          msbuild native/SeewoCaptureGuard.Payload/SeewoCaptureGuard.Payload.vcxproj
-          /p:Configuration=Release /p:Platform=x64
-          /m /v:minimal /nologo
-
-      - name: Build the capture guard payload (Win32)
-        id: build_payload_x86
-        continue-on-error: true
-        run: >
-          msbuild native/SeewoCaptureGuard.Payload/SeewoCaptureGuard.Payload.vcxproj
-          /p:Configuration=Release /p:Platform=Win32
-          /m /v:minimal /nologo
-
-      # ------------------------------------------------------------------ managed
-      # The managed projects are built individually rather than through the .sln,
-      # because the solution also contains the C++ projects and `dotnet build` does
-      # not drive vcxproj reliably.
-
       - name: Restore managed packages
         id: restore_managed
         continue-on-error: true
@@ -287,8 +266,6 @@ jobs:
             @{ Name = 'DirectShow 虚拟摄像头 (x64)';  Path = 'artifacts/native/x64/Release/SeewoVirtualCamera.DShow.dll' },
             @{ Name = 'DirectShow 虚拟摄像头 (x86)';  Path = 'artifacts/native/Win32/Release/SeewoVirtualCamera.DShow.dll' },
             @{ Name = '虚拟摄像头安装工具';          Path = 'artifacts/native/x64/Release/SeewoVirtualCamera.Setup.exe' },
-            @{ Name = '防截屏载荷 (x64)';             Path = 'artifacts/native/x64/Release/SeewoCaptureGuard.Payload.dll' },
-            @{ Name = '防截屏载荷 (x86)';             Path = 'artifacts/native/Win32/Release/SeewoCaptureGuard.Payload.dll' }
           )
 
           $missing = @()
@@ -456,9 +433,7 @@ jobs:
             "$target/SeewoVirtualCamera.dll",
             "$target/native/x64/SeewoVirtualCamera.dll",
             "$target/native/x64/SeewoVirtualCamera.DShow.dll",
-            "$target/native/x64/SeewoCaptureGuard.Payload.dll",
             "$target/native/x86/SeewoVirtualCamera.DShow.dll",
-            "$target/native/x86/SeewoCaptureGuard.Payload.dll",
             "$target/scripts/Install-Native.ps1"
           )
 

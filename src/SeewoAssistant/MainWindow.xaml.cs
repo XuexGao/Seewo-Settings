@@ -48,6 +48,12 @@ public sealed partial class MainWindow : Window
             _trayIcon.ExitRequested += (_, _) => ExitApplication();
             _trayIcon.TogglePrivacyRequested += (_, _) => TogglePrivacyMonitor();
             _trayIcon.ToggleCameraRequested += (_, _) => ToggleVirtualCamera();
+
+            // Hiding takes this window away too, so the tray menu is the only place the
+            // user can always reach to undo it. Restoring from here also brings the
+            // window back, which is what someone who just hid everything expects.
+            _trayIcon.HideWindowsRequested += OnTrayHideWindowsRequested;
+
             UpdateTrayTooltip();
         }
         else
@@ -248,6 +254,49 @@ public sealed partial class MainWindow : Window
 
         UpdateTrayTooltip();
         UpdateStatusBar();
+    }
+
+    /// <summary>
+    /// Hides or restores desktop windows from the tray menu.
+    /// </summary>
+    /// <param name="hide">True to hide, false to restore.</param>
+    /// <remarks>
+    /// The work runs off the UI thread because it enumerates and touches every
+    /// top-level window. When restoring, this window is brought back as well - the user
+    /// asked to undo the hide, and leaving the app invisible would make the tray menu
+    /// the only way to reach anything.
+    /// </remarks>
+    private async void OnTrayHideWindowsRequested(object? sender, bool hide)
+    {
+        try
+        {
+            if (hide)
+            {
+                var hidden = await Task.Run(() => _services.WindowHider.HideAll());
+
+                _services.Report(
+                    hidden == 0
+                        ? "没有找到可以隐藏的窗口。"
+                        : $"已隐藏 {hidden} 个窗口。右键托盘图标可以恢复。",
+                    StatusSeverity.Informational);
+            }
+            else
+            {
+                var restored = await Task.Run(() => _services.WindowHider.Restore());
+
+                _services.Report(
+                    restored == 0 ? "没有需要恢复的窗口。" : $"已恢复 {restored} 个窗口。",
+                    StatusSeverity.Informational);
+
+                // Make the app itself visible again, since hiding took it away.
+                RestoreFromTray();
+            }
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Error("Toggling desktop window visibility from the tray failed.", ex);
+            _services.Report($"操作窗口失败：{ex.Message}", StatusSeverity.Error);
+        }
     }
 
     private void ToggleVirtualCamera()

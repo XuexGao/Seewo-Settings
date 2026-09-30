@@ -64,19 +64,23 @@ public sealed class CaptureGuardService : IDisposable
 
     private readonly IAppLogger _logger;
     private readonly WindowEnumerator _enumerator;
-    private readonly PayloadInjector _injector;
-    private readonly GuardChannel _channel;
-    private readonly object _gate = new();
 
-    /// <summary>Processes already injected, so a repeat request does not re-inject.</summary>
-    private readonly HashSet<int> _injectedProcesses = [];
+    /// <summary>
+    /// Applies the affinity inside the target process with a short machine-code stub.
+    /// </summary>
+    /// <remarks>
+    /// A persistent injected DLL and its shared-memory channel were removed in favour of
+    /// this. See <see cref="ApplyCrossProcess"/> for why.
+    /// </remarks>
+    private readonly ShellcodeAffinitySetter _affinitySetter;
 
     public CaptureGuardService(string? payloadDirectory = null, IAppLogger? logger = null)
     {
+        _ = payloadDirectory;
+
         _logger = logger ?? NullLogger.Instance;
         _enumerator = new WindowEnumerator(_logger);
-        _injector = new PayloadInjector(payloadDirectory, _logger);
-        _channel = new GuardChannel(_logger);
+        _affinitySetter = new ShellcodeAffinitySetter(_logger);
     }
 
     /// <summary>Enumerates candidate windows for the picker.</summary>
@@ -95,19 +99,18 @@ public sealed class CaptureGuardService : IDisposable
     public static bool SupportsExcludeFromCapture =>
         OperatingSystem.IsWindowsVersionAtLeast(10, 0, ExcludeFromCaptureMinimumBuild);
 
-    /// <summary>True when the cross-process payload is present next to the app.</summary>
-    public bool IsCrossProcessAvailable
-    {
-        get
-        {
-            var baseDirectory = AppContext.BaseDirectory;
-            var architecture = Environment.Is64BitProcess ? "x64" : "x86";
-
-            return File.Exists(Path.Combine(baseDirectory, "native", architecture, "SeewoCaptureGuard.Payload.dll"))
-                || File.Exists(Path.Combine(baseDirectory, architecture, "SeewoCaptureGuard.Payload.dll"))
-                || File.Exists(Path.Combine(baseDirectory, "SeewoCaptureGuard.Payload.dll"));
-        }
-    }
+    /// <summary>
+    /// True when cross-process protection can be attempted on this machine.
+    /// </summary>
+    /// <remarks>
+    /// The stub is built at runtime, so unlike the previous payload-DLL design there is
+    /// no file that can be missing from the package. The remaining requirement is the OS
+    /// itself: <c>SetWindowDisplayAffinity</c> and the ability to create a remote thread
+    /// both exist from Windows 10 2004 onwards.
+    /// </remarks>
+    public bool IsCrossProcessAvailable =>
+        OperatingSystem.IsWindows() &&
+        OperatingSystem.IsWindowsVersionAtLeast(10, 0, ExcludeFromCaptureMinimumBuild);
 
     /// <summary>
     /// Applies protection to a window, choosing the scope automatically from
@@ -150,7 +153,7 @@ public sealed class CaptureGuardService : IDisposable
                 scope);
         }
 
-        if (PayloadInjector.IsForbiddenProcess(window.ProcessName))
+        if (ShellcodeAffinitySetter.IsForbiddenProcess(window.ProcessName))
         {
             return ProtectionResult.Fail(
                 $"出于系统稳定性考虑，拒绝向「{window.ProcessName}」注入。" +
@@ -208,77 +211,50 @@ public sealed class CaptureGuardService : IDisposable
     }
 
     /// <summary>Injects the payload if needed, then sends the affinity request.</summary>
+    /// <summary>
+    /// Applies the affinity to a window owned by another process.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Windows only allows <c>SetWindowDisplayAffinity</c> on a window the calling
+    /// process owns, so the call has to be made inside the target. That is done with a
+    /// short machine-code stub, which is what <see cref="ShellcodeAffinitySetter"/>
+    /// exists for.
+    /// </para>
+    /// <para>
+    /// This replaces an earlier design that injected a persistent DLL and talked to it
+    /// over a named shared-memory channel. That approach needed the two sides to agree
+    /// on a namespace and on a memory layout, and any disagreement produced no error at
+    /// all - just a reply that never arrived, reported to the user as a timeout. It also
+    /// left a DLL resident in a third-party process for up to ten minutes, which is the
+    /// behaviour antivirus heuristics are built to catch. The stub has none of those
+    /// properties: it is one call, it needs no imports or shared state, and it is freed
+    /// as soon as it returns.
+    /// </para>
+    /// </remarks>
     private ProtectionResult ApplyCrossProcess(WindowInfo window, uint affinity, ProtectionScope scope)
     {
-        if (!IsCrossProcessAvailable)
+        var result = _affinitySetter.SetAffinity(window.ProcessId, window.Handle, affinity);
+
+        if (!result.Success)
         {
-            return ProtectionResult.Fail(
-                "未找到跨进程注入载荷 SeewoCaptureGuard.Payload.dll。请确认发行包完整。",
-                scope);
-        }
-
-        if (!_channel.Open())
-        {
-            return ProtectionResult.Fail("无法创建跨进程通信通道。", scope);
-        }
-
-        lock (_gate)
-        {
-            if (!_injectedProcesses.Contains(window.ProcessId))
-            {
-                var injection = _injector.Inject(window.ProcessId, _channel);
-                if (!injection.Success)
-                {
-                    return ProtectionResult.Fail(injection.Message, scope, injection.Exception);
-                }
-
-                _injectedProcesses.Add(window.ProcessId);
-            }
-        }
-
-        var response = _channel.Send(
-            GuardCommandNative.SetAffinity,
-            (ulong)window.Handle,
-            affinity);
-
-        if (response is null)
-        {
-            // The payload stopped answering; drop it from the cache so the next
-            // attempt re-injects rather than silently failing forever.
-            lock (_gate)
-            {
-                _injectedProcesses.Remove(window.ProcessId);
-            }
-
-            return ProtectionResult.Fail(
-                "注入载荷没有响应。目标进程可能已退出，或载荷已被安全软件终止。",
-                scope);
-        }
-
-        var (success, lastError, _) = response.Value;
-
-        if (!success)
-        {
-            var message = lastError switch
-            {
-                NativeMethods.ERROR_ACCESS_DENIED =>
-                    "目标进程内的调用被拒绝。这通常意味着目标进程受保护（PPL）或以更高权限运行。",
-                NativeMethods.ERROR_INVALID_WINDOW_HANDLE => "窗口句柄在目标进程中已失效。",
-                _ => $"目标进程返回失败，Win32 错误 {lastError}。",
-            };
-
-            _logger.Warn($"Cross-process affinity change failed for PID {window.ProcessId}: {message}");
-            return ProtectionResult.Fail(message, scope);
+            _logger.Warn($"Cross-process affinity change failed for PID {window.ProcessId}: {result.Message}");
+            return ProtectionResult.Fail(result.Message, scope, result.Exception);
         }
 
         var state = AffinityToState(affinity);
-        _logger.Info($"Applied {state} to {window.ProcessName} (PID {window.ProcessId}) window {window.HandleHex}.");
+
+        _logger.Info(
+            $"Applied {state} to {window.ProcessName} (PID {window.ProcessId}) " +
+            $"window {window.HandleHex} via remote stub.");
 
         var note = state == CaptureProtectionState.Excluded && !SupportsExcludeFromCapture
             ? "（当前系统版本低于 19041，系统会按「黑块遮蔽」处理）"
             : string.Empty;
 
-        return ProtectionResult.Ok(state, scope, $"已对「{window.ProcessName}」应用 {Describe(state)}{note}。");
+        return ProtectionResult.Ok(
+            state, scope,
+            $"已对「{window.ProcessName}」应用 {Describe(state)}{note}。");
     }
 
     private static CaptureProtectionState AffinityToState(uint affinity) => affinity switch
@@ -296,26 +272,20 @@ public sealed class CaptureGuardService : IDisposable
         _ => "无保护",
     };
 
-    /// <summary>Asks every injected payload to unload. Best effort.</summary>
+    /// <summary>
+    /// Retained for callers. Nothing stays loaded in a target process any more, so there
+    /// is nothing to release.
+    /// </summary>
+    /// <remarks>
+    /// The previous design kept a DLL resident in each target for up to ten minutes and
+    /// needed an explicit unload. The remote stub frees itself as soon as the call
+    /// returns, so this is now a no-op rather than a real teardown step.
+    /// </remarks>
     public void ReleaseInjectedPayloads()
     {
-        lock (_gate)
-        {
-            if (_injectedProcesses.Count == 0)
-            {
-                return;
-            }
-
-            _channel.Send(GuardCommandNative.Unload);
-            _injectedProcesses.Clear();
-        }
-
-        _logger.Info("Requested all injected capture-guard payloads to unload.");
     }
 
     public void Dispose()
     {
-        ReleaseInjectedPayloads();
-        _channel.Dispose();
     }
 }

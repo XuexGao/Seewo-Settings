@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using SeewoAssistant.Core.Services.CaptureGuard;
 using SeewoAssistant.Core.Services.VirtualCamera;
 using Xunit;
 
@@ -104,11 +103,6 @@ public sealed class SharedChannelContractTests
     [InlineData("kVcamLocalSectionName", "Local\\SeewoAssistant.VCam.Frame.v1")]
     [InlineData("kVcamDataEventName", "Global\\SeewoAssistant.VCam.DataReady.v1")]
     [InlineData("kVcamLocalDataEventName", "Local\\SeewoAssistant.VCam.DataReady.v1")]
-    // Capture guard request channel.
-    [InlineData("kGuardSectionName", "Global\\SeewoAssistant.CaptureGuard.v1")]
-    [InlineData("kGuardLocalSectionName", "Local\\SeewoAssistant.CaptureGuard.v1")]
-    [InlineData("kGuardRequestEventName", "Global\\SeewoAssistant.CaptureGuard.Request.v1")]
-    [InlineData("kGuardLocalRequestEventName", "Local\\SeewoAssistant.CaptureGuard.Request.v1")]
     public void NativeConstantHasTheExpectedName(string constantName, string expected)
     {
         var header = RequireNativeHeader();
@@ -134,20 +128,6 @@ public sealed class SharedChannelContractTests
         Assert.Equal(ReadNativeConstant(text, "kVcamDataEventName"), FrameChannelContract.DataEventName);
         Assert.Equal(ReadNativeConstant(text, "kVcamLocalDataEventName"), FrameChannelContract.LocalDataEventName);
     }
-
-    [Fact]
-    public void ManagedGuardNamesMatchTheNativeHeader()
-    {
-        var header = RequireNativeHeader();
-
-        var text = File.ReadAllText(header!);
-
-        Assert.Equal(ReadNativeConstant(text, "kGuardSectionName"), GuardChannel.SectionName);
-        Assert.Equal(ReadNativeConstant(text, "kGuardLocalSectionName"), GuardChannel.LocalSectionName);
-        Assert.Equal(ReadNativeConstant(text, "kGuardRequestEventName"), GuardChannel.RequestEventName);
-        Assert.Equal(ReadNativeConstant(text, "kGuardLocalRequestEventName"), GuardChannel.LocalRequestEventName);
-    }
-
     [Fact]
     public void EveryChannelNameCarriesANamespacePrefix()
     {
@@ -160,8 +140,6 @@ public sealed class SharedChannelContractTests
             "kVcamSectionName", "kVcamLocalSectionName",
             "kVcamDataEventName", "kVcamLocalDataEventName",
             "kVcamRequestEventName", "kVcamLocalRequestEventName",
-            "kGuardSectionName", "kGuardLocalSectionName",
-            "kGuardRequestEventName", "kGuardLocalRequestEventName",
         ];
 
         foreach (var name in constants)
@@ -194,8 +172,6 @@ public sealed class SharedChannelContractTests
         [
             ("kVcamSectionName", "kVcamLocalSectionName"),
             ("kVcamDataEventName", "kVcamLocalDataEventName"),
-            ("kGuardSectionName", "kGuardLocalSectionName"),
-            ("kGuardRequestEventName", "kGuardLocalRequestEventName"),
         ];
 
         foreach (var (globalName, localName) in pairs)
@@ -282,62 +258,5 @@ public sealed class SharedChannelContractTests
         Assert.True(
             actual == FrameChannelContract.HeaderSize,
             $"FrameHeader 实际 {actual} 字节，契约声明 {FrameChannelContract.HeaderSize} 字节。");
-    }
-
-    [Fact]
-    public void GuardNamespaceConstantsMatchTheNativeHeader()
-    {
-        var header = RequireNativeHeader();
-        var text = File.ReadAllText(header!);
-
-        // The injector passes one of these values to the payload as its thread
-        // parameter, and the payload compares it against the same constants. A mismatch
-        // would make the payload attach to the wrong namespace, or - worse - treat an
-        // explicit hint as "no hint" and probe for itself, which is the bug these
-        // constants exist to prevent.
-        var nativeGlobal = Regex.Match(text, @"kGuardNamespaceGlobal\s*=\s*(\d+)");
-        var nativeLocal = Regex.Match(text, @"kGuardNamespaceLocal\s*=\s*(\d+)");
-
-        Assert.True(nativeGlobal.Success, "在 SeewoIpc.h 中找不到 kGuardNamespaceGlobal。");
-        Assert.True(nativeLocal.Success, "在 SeewoIpc.h 中找不到 kGuardNamespaceLocal。");
-
-        Assert.Equal(int.Parse(nativeGlobal.Groups[1].Value), GuardChannelNamespace.Global);
-        Assert.Equal(int.Parse(nativeLocal.Groups[1].Value), GuardChannelNamespace.Local);
-
-        // Zero is reserved for "the injector did not send a hint", which is what an
-        // older injector passes as a NULL thread parameter. An explicit namespace must
-        // never be zero, or the payload would silently fall back to probing.
-        Assert.NotEqual(0, GuardChannelNamespace.Global);
-        Assert.NotEqual(0, GuardChannelNamespace.Local);
-        Assert.NotEqual(GuardChannelNamespace.Global, GuardChannelNamespace.Local);
-    }
-
-    [Fact]
-    public void GuardChannelRecordsWhichNamespaceItOpened()
-    {
-        // The injector passes this value to the payload, so it must reflect the
-        // namespace actually used rather than an assumption. On Windows the channel can
-        // be opened for real; elsewhere only the default state can be checked.
-        using var channel = new GuardChannel();
-
-        if (!OperatingSystem.IsWindows())
-        {
-            Assert.False(channel.UsesGlobalNamespace);
-            return;
-        }
-
-        // Open() creates the objects if needed, so it succeeds even without a producer.
-        Assert.True(channel.Open(), "无法打开防截屏通道。");
-
-        // Whichever namespace was chosen, the property must agree with a fresh probe of
-        // the object it actually created: a Global-namespace section is visible from a
-        // second handle opened with the Global name.
-        var expectedName = channel.UsesGlobalNamespace
-            ? GuardChannel.SectionName
-            : GuardChannel.LocalSectionName;
-
-        Assert.StartsWith(
-            channel.UsesGlobalNamespace ? "Global\\" : "Local\\",
-            expectedName);
     }
 }

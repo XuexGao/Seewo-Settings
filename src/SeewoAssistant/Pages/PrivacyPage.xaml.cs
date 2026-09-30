@@ -327,11 +327,17 @@ public sealed partial class PrivacyPage : ModulePageBase
             }
             else
             {
+                // This window is hidden along with everything else, so the message
+                // tells the user where the undo actually lives - the tray menu - rather
+                // than pointing at a button they can no longer see.
                 ShowHideResult(
-                    $"已隐藏 {hidden} 个窗口。任务栏、桌面和系统界面保持可见。",
+                    $"已隐藏 {hidden} 个窗口（包括本窗口）。任务栏、桌面和系统界面保持可见。" +
+                    "右键托盘图标可以选择「恢复所有窗口」。",
                     InfoBarSeverity.Success);
 
-                Report($"已隐藏 {hidden} 个窗口。点击「恢复所有窗口」可以全部还原。", StatusSeverity.Success);
+                Report(
+                    $"已隐藏 {hidden} 个窗口。右键托盘图标可以恢复。",
+                    StatusSeverity.Success);
             }
         }
         catch (Exception ex)
@@ -396,6 +402,14 @@ public sealed partial class PrivacyPage : ModulePageBase
         // already hidden would discard the record of what to restore.
         RestoreWindowsButton.IsEnabled = isHidden;
         HideWindowsButton.IsEnabled = !isHidden;
+
+        // Once hidden, this page is hidden too, so the tray menu is the reliable way
+        // back. Say so rather than leaving the user to discover it.
+        if (isHidden)
+        {
+            HiddenWindowsStatusText.Text =
+                $"当前隐藏了 {count} 个窗口（包括本窗口）。右键托盘图标 →「恢复所有窗口」可以还原。";
+        }
     }
 
     private void OnBannerSecondsChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)

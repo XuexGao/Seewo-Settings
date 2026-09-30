@@ -5,32 +5,50 @@ using SeewoAssistant.Core.Interop;
 namespace SeewoAssistant.Core.Services.Desktop;
 
 /// <summary>
-/// Hides every top-level window except those belonging to Windows itself, and restores
-/// them on demand.
+/// Hides every top-level window except the ones Windows itself needs, and restores them
+/// on demand.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the "一键隐藏" action: the user wants a clean desktop with nothing on it but
-/// the system's own windows, without closing anything. Hiding is the right primitive
-/// rather than minimising, because a minimised window still occupies the taskbar and
-/// can be restored by an errant click.
+/// The filter is deliberately minimal, following the approach used by the reference
+/// project <c>NoMoreCapture</c>: enumerate the visible top-level windows, skip this
+/// application's own windows, skip the three shell classes that make up the desktop and
+/// taskbar, and hide everything else.
 /// </para>
 /// <para>
-/// Nothing is destroyed. Every handle that was hidden is recorded, and
-/// <see cref="Restore"/> puts exactly those windows back. A window that has since
-/// closed is skipped rather than treated as an error.
+/// An earlier version of this class tried to be cleverer - it protected a long list of
+/// process names, anything installed under the Windows directory, and any window without
+/// a title. That was wrong twice over: it hid almost nothing (a title is not required for
+/// a window to be worth hiding), and the intent was never "hide only some of them". The
+/// only windows that genuinely must stay are the desktop and the taskbar, because hiding
+/// those leaves the machine with no way to interact with it.
 /// </para>
 /// <para>
-/// "System" windows are identified conservatively: the shell, the taskbar, the desktop,
-/// the accessibility and input surfaces, and anything running from the Windows
-/// directory. Hiding those would leave the user with no way to interact with the
-/// machine, which is why the list is a hard-coded set of names and paths rather than a
-/// heuristic.
+/// Windows are hidden rather than minimised: a minimised window still occupies the
+/// taskbar and can be restored by a stray click. Every handle that was hidden is
+/// recorded, and <see cref="Restore"/> puts exactly those back.
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("windows")]
 public sealed class WindowHiderService
 {
+    /// <summary>
+    /// Window classes that must never be hidden.
+    /// </summary>
+    /// <remarks>
+    /// <c>Progman</c> and <c>WorkerW</c> are the desktop background, and
+    /// <c>Shell_TrayWnd</c> is the taskbar. These are the only three the reference
+    /// project skips, and they are the only three that would leave the desktop
+    /// unusable - there would be no taskbar to click and nothing to bring anything
+    /// back with.
+    /// </remarks>
+    private static readonly string[] ShellClasses =
+    [
+        "Progman",
+        "WorkerW",
+        "Shell_TrayWnd",
+    ];
+
     private readonly IAppLogger _logger;
     private readonly object _gate = new();
 
@@ -67,124 +85,42 @@ public sealed class WindowHiderService
     }
 
     /// <summary>
-    /// Process names that must never be hidden.
-    /// </summary>
-    /// <remarks>
-    /// Hiding the shell, the taskbar or the desktop leaves the machine unusable - there
-    /// is no taskbar to click and no way to bring anything back except the tray icon,
-    /// which may itself be inside the hidden shell. The list is explicit rather than
-    /// pattern-based so that a new entry is a deliberate decision.
-    /// </remarks>
-    private static readonly HashSet<string> ProtectedProcessNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        // The shell and its surfaces.
-        "explorer",
-        "ShellExperienceHost",
-        "StartMenuExperienceHost",
-        "SearchHost",
-        "SearchApp",
-        "ShellHost",
-        "sihost",
-        "dwm",
-        "TextInputHost",
-        "ApplicationFrameHost",
-        "LockApp",
-        "LogonUI",
-        "winlogon",
-        "csrss",
-        "wininit",
-        "services",
-        "lsass",
-        "smss",
-        "fontdrvhost",
-        "ctfmon",
-
-        // Accessibility and input: hiding these can strand a user who depends on them.
-        "Magnify",
-        "Narrator",
-        "osk",
-        "TabTip",
-        "SecurityHealthSystray",
-        "SecurityHealthService",
-
-        // The notification and volume flyouts.
-        "SystemSettings",
-        "ShellHostExperience",
-        "Widgets",
-        "WidgetService",
-    };
-
-    /// <summary>
-    /// Process names that are the user's own session infrastructure rather than
-    /// applications, and are also left alone.
-    /// </summary>
-    private static readonly HashSet<string> ProtectedProcessNamesExtra = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "SeewoAssistant",
-    };
-
-    /// <summary>
-    /// Hides every eligible top-level window.
+    /// Hides every eligible top-level window, including this application's own.
     /// </summary>
     /// <returns>The number of windows hidden.</returns>
-    public int HideAll(bool includeOwnWindow = false)
+    /// <remarks>
+    /// The app hides itself too: the request is "hide everything except system
+    /// programs", and this application is not a system program. It stays reachable
+    /// through the tray icon, whose window is message-only and therefore never
+    /// enumerated here.
+    /// </remarks>
+    public int HideAll()
     {
         if (!OperatingSystem.IsWindows())
         {
             return 0;
         }
 
-        // Start from a clean slate: a previous hide that was never restored would
-        // otherwise accumulate handles that may since have been reused.
+        // Start from a clean slate. A previous hide that was never restored would
+        // otherwise accumulate handles that may since have been reused by other windows.
         lock (_gate)
         {
             _hidden.Clear();
         }
 
-        var ownProcessId = Environment.ProcessId;
         var hidden = new List<nint>();
 
         NativeMethods.EnumWindows((hWnd, _) =>
         {
             try
             {
-                if (!NativeMethods.IsWindowVisible(hWnd))
+                if (!ShouldHide(hWnd))
                 {
                     return true;
                 }
 
-                NativeMethods.GetWindowThreadProcessId(hWnd, out var processId);
-
-                if (processId == 0)
-                {
-                    return true;
-                }
-
-                // The app's own window is normally kept visible so the user can undo
-                // this, and so the tray icon remains reachable.
-                if (processId == (uint)ownProcessId && !includeOwnWindow)
-                {
-                    return true;
-                }
-
-                var (processName, processPath) = ResolveProcess(processId);
-
-                if (ShouldNeverHide(processName, processPath, hWnd))
-                {
-                    return true;
-                }
-
-                // A window with no title and no size is a helper or cloaked surface;
-                // hiding it achieves nothing and risks breaking an app.
-                if (!IsRealWindow(hWnd))
-                {
-                    return true;
-                }
-
-                if (NativeMethods.ShowWindow(hWnd, NativeMethods.SW_HIDE))
-                {
-                    hidden.Add(hWnd);
-                }
+                NativeMethods.ShowWindow(hWnd, NativeMethods.SW_HIDE);
+                hidden.Add(hWnd);
 
                 return true;
             }
@@ -230,20 +166,19 @@ public sealed class WindowHiderService
         {
             try
             {
-                // The handle may have been reused by a different window after the
-                // original closed. IsWindow only proves the handle is valid, so the
-                // restore is best-effort: showing a stale handle is harmless, and a
-                // reused handle belonging to a hidden window would be shown, which is
-                // the same outcome the user asked for.
                 if (!NativeMethods.IsWindow(hWnd))
                 {
+                    // The window closed while it was hidden; nothing to restore.
                     continue;
                 }
 
-                if (NativeMethods.ShowWindow(hWnd, NativeMethods.SW_SHOW))
-                {
-                    restored++;
-                }
+                // ShowWindow returns whether the window was previously *visible*, not
+                // whether the call succeeded. A window being restored was hidden, so it
+                // returns FALSE even on success. Treating that as failure made the count
+                // permanently zero and the UI report "nothing to restore" while the
+                // desktop was in fact still hidden.
+                NativeMethods.ShowWindow(hWnd, NativeMethods.SW_SHOW);
+                restored++;
             }
             catch (Exception ex)
             {
@@ -255,71 +190,38 @@ public sealed class WindowHiderService
         return restored;
     }
 
-    /// <summary>True when a window must be left alone.</summary>
-    private static bool ShouldNeverHide(string processName, string processPath, nint hWnd)
+    /// <summary>True when a window should be hidden.</summary>
+    private static bool ShouldHide(nint hWnd)
     {
-        if (ProtectedProcessNames.Contains(processName) ||
-            ProtectedProcessNamesExtra.Contains(processName))
+        if (!NativeMethods.IsWindowVisible(hWnd))
         {
-            return true;
+            return false;
         }
 
-        // Anything running out of the Windows directory is part of the OS.
-        if (!string.IsNullOrWhiteSpace(processPath))
-        {
-            var windowsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        NativeMethods.GetWindowThreadProcessId(hWnd, out var processId);
 
-            if (!string.IsNullOrWhiteSpace(windowsDirectory) &&
-                processPath.StartsWith(windowsDirectory, StringComparison.OrdinalIgnoreCase))
+        if (processId == 0)
+        {
+            return false;
+        }
+
+        // This application's own window is hidden as well: the request is "hide
+        // everything except system programs", and this is not a system program. The tray
+        // icon is the way back, and its window is created with HWND_MESSAGE, so it is
+        // message-only and never appears in this enumeration.
+        // The desktop background and the taskbar are the only things that must stay:
+        // without them there is no way to interact with the machine at all.
+        var className = GetClassName(hWnd);
+
+        foreach (var shellClass in ShellClasses)
+        {
+            if (string.Equals(className, shellClass, StringComparison.Ordinal))
             {
-                return true;
+                return false;
             }
         }
 
-        // The desktop and the taskbar are also identifiable by class, which covers a
-        // shell whose process could not be resolved.
-        var className = GetClassName(hWnd);
-
-        return className is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd"
-            or "NotifyIconOverflowWindow" or "TaskListThumbnailWnd" or "Windows.UI.Core.CoreWindow"
-            or "XamlExplorerHostIslandWindow" or "MultitaskingViewFrame" or "ForegroundStaging";
-    }
-
-    /// <summary>True when a window is substantial enough to be worth hiding.</summary>
-    private static bool IsRealWindow(nint hWnd)
-    {
-        if (!NativeMethods.GetWindowRect(hWnd, out var rect))
-        {
-            return false;
-        }
-
-        // Ignore zero-area windows: they are invisible helpers.
-        if (rect.Width <= 0 || rect.Height <= 0)
-        {
-            return false;
-        }
-
-        var title = GetWindowText(hWnd);
-
-        // An untitled window is a helper surface. Hiding it would achieve nothing the
-        // user can see, and might break a tray or input component.
-        return !string.IsNullOrWhiteSpace(title);
-    }
-
-    private static string GetWindowText(nint hWnd)
-    {
-        var length = NativeMethods.GetWindowTextLengthW(hWnd);
-
-        if (length <= 0)
-        {
-            return string.Empty;
-        }
-
-        // One extra character for the terminator.
-        var buffer = new System.Text.StringBuilder(length + 1);
-        NativeMethods.GetWindowTextW(hWnd, buffer, buffer.Capacity);
-
-        return buffer.ToString();
+        return true;
     }
 
     private static string GetClassName(nint hWnd)
@@ -328,34 +230,5 @@ public sealed class WindowHiderService
         NativeMethods.GetClassNameW(hWnd, buffer, buffer.Capacity);
 
         return buffer.ToString();
-    }
-
-    private static (string Name, string Path) ResolveProcess(uint processId)
-    {
-        try
-        {
-            using var process = System.Diagnostics.Process.GetProcessById((int)processId);
-
-            string? path = null;
-
-            try
-            {
-                path = process.MainModule?.FileName;
-            }
-            catch (System.ComponentModel.Win32Exception) { /* Bitness or protected. */ }
-            catch (InvalidOperationException) { /* Exited. */ }
-            catch (NotSupportedException) { }
-
-            return (process.ProcessName, path ?? string.Empty);
-        }
-        catch (ArgumentException)
-        {
-            // The process exited between enumeration and this call.
-            return (string.Empty, string.Empty);
-        }
-        catch (InvalidOperationException)
-        {
-            return (string.Empty, string.Empty);
-        }
     }
 }
