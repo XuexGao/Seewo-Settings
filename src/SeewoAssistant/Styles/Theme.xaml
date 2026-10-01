@@ -80,7 +80,15 @@
         return the text the user sees. Binding to the item itself (rather than to a member)
         is what makes this work for all lists with one style.
     -->
-    <Style x:Key="AccessibleListViewItemStyle" TargetType="ListViewItem">
+    <!--
+        BasedOn is required, not optional. A Style that does not inherit the default has no
+        Template setter, and a ListViewItem with no template renders nothing at all - every
+        list would have gone blank. DefaultListViewItemStyle is the key WinUI's own generic
+        resources use for exactly this purpose.
+    -->
+    <Style x:Key="AccessibleListViewItemStyle"
+           TargetType="ListViewItem"
+           BasedOn="{StaticResource DefaultListViewItemStyle}">
         <Setter Property="AutomationProperties.Name" Value="{Binding}" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
