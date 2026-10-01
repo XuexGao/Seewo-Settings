@@ -143,7 +143,12 @@ public sealed class BackgroundThreadContractTests
 
             for (var i = 0; i < lines.Length; i++)
             {
-                if (!lines[i].Contains("Task.Run", StringComparison.Ordinal))
+                // A comment that merely explains a past Task.Run bug is not a call site.
+                // Matching those produced a false positive on the very comment written to
+                // document this defect.
+                var code = StripComment(lines[i]);
+
+                if (!code.Contains("Task.Run", StringComparison.Ordinal))
                 {
                     continue;
                 }
@@ -154,6 +159,12 @@ public sealed class BackgroundThreadContractTests
                 {
                     continue;
                 }
+
+                // Strip comments from the body too, so prose inside the lambda cannot be
+                // mistaken for code.
+                body = string.Join(
+                    "\n",
+                    body.Split('\n').Select(StripComment));
 
                 // A control reached directly.
                 var offenders = new List<string>();
@@ -192,6 +203,50 @@ public sealed class BackgroundThreadContractTests
             problems.Count == 0,
             "后台线程访问了 UI，会在运行时抛 RPC_E_WRONG_THREAD：\n" +
             string.Join("\n", problems.Distinct()));
+    }
+
+    /// <summary>
+    /// Removes a trailing line comment from a line of C#.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately simple: it handles <c>//</c> outside string literals, which is all the
+    /// scan needs. Block comments are not handled, but none of the code under test uses
+    /// them inside a lambda.
+    /// </remarks>
+    private static string StripComment(string line)
+    {
+        var inString = false;
+        var inChar = false;
+
+        for (var i = 0; i < line.Length - 1; i++)
+        {
+            var c = line[i];
+
+            if (c == '\\')
+            {
+                i++;
+                continue;
+            }
+
+            if (c == '"' && !inChar)
+            {
+                inString = !inString;
+                continue;
+            }
+
+            if (c == '\'' && !inString)
+            {
+                inChar = !inChar;
+                continue;
+            }
+
+            if (!inString && !inChar && c == '/' && line[i + 1] == '/')
+            {
+                return line[..i];
+            }
+        }
+
+        return line;
     }
 
     /// <summary>
