@@ -1063,22 +1063,48 @@ foreach ($entry in $interactionPlan) {
             }
 
             try {
-                # A control can support either pattern. ToggleSwitch - used for every
-                # setting on these pages - exposes TogglePattern, not InvokePattern.
+                # A control may expose TogglePattern (every settings toggle) or
+                # InvokePattern (every button), so both are tried.
+                #
+                # TryGetCurrentPattern is used rather than GetCurrentPattern in a
+                # try/catch: GetCurrentPattern raises "Unsupported Pattern" for a control
+                # that supports neither, and the old code let that escape as a warning for
+                # every such row - the report counted three of them and could not tell
+                # whether anything was wrong. A control with no actionable pattern is a
+                # real accessibility finding, so it is reported as one.
                 $invoked = $false
 
-                try {
-                    $toggle = $button.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
-                    $toggle.Toggle()
+                foreach ($pattern in @(
+                    [System.Windows.Automation.TogglePattern]::Pattern,
+                    [System.Windows.Automation.InvokePattern]::Pattern,
+                    [System.Windows.Automation.SelectionItemPattern]::Pattern)) {
+
+                    $patternObject = $null
+
+                    if (-not $button.TryGetCurrentPattern($pattern, [ref]$patternObject)) {
+                        continue
+                    }
+
+                    if ($pattern -eq [System.Windows.Automation.TogglePattern]::Pattern) {
+                        $patternObject.Toggle()
+                    }
+                    elseif ($pattern -eq [System.Windows.Automation.InvokePattern]::Pattern) {
+                        $patternObject.Invoke()
+                    }
+                    else {
+                        $patternObject.Select()
+                    }
+
                     $invoked = $true
-                }
-                catch {
-                    $invoke = $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-                    $invoke.Invoke()
-                    $invoked = $true
+                    break
                 }
 
-                if (-not $invoked) { continue }
+                if (-not $invoked) {
+                    Write-Warn ("控件不支持任何标准交互模式：page='$PageName' name='$name' " +
+                                "type=$($button.Current.ControlType.ProgrammaticName) " +
+                                "id='$($button.Current.AutomationId)'")
+                    continue
+                }
 
                 $pageClicked++
                 $clickedTotal++
