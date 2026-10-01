@@ -848,7 +848,6 @@ Assert-UnsafeListIsSane
     #
     # This is checked by walking up from each candidate to see whether it sits inside one
     # of these lists.
-    $destructiveListNames = @('StartupList')
 
 # Returns true when a control sits inside one of the named lists.
 #
@@ -889,6 +888,9 @@ function Test-InDestructiveList {
 
     return $false
 }
+
+# Lists whose contents are excluded from the sweep. See the comment on Get-SafeButtons.
+$destructiveListNames = @('StartupList')
 
 function Get-SafeButtons {
     param(
