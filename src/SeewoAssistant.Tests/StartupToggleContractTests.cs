@@ -133,14 +133,16 @@ public sealed class StartupToggleContractTests
 
         var item = Regex.Match(
             source,
-            @"private sealed class TaskItem\s*\{(?P<body>.*?)\n    \}",
+            // .NET uses (?<name>...); the Python-style (?P<name>...) is not valid here and
+            // would make this assertion pass by matching nothing.
+            @"private sealed class TaskItem\s*\{(?<body>.*?)\n    \}",
             RegexOptions.Singleline);
 
         Assert.True(item.Success, "找不到 TaskItem 类。");
 
         var enabled = Regex.Match(
             item.Groups["body"].Value,
-            @"public bool Enabled\s*\{(?P<a>.*?)\}",
+            @"public bool Enabled\s*\{(?<a>.*?)\}",
             RegexOptions.Singleline);
 
         Assert.True(enabled.Success, "TaskItem 上找不到 Enabled 属性。");
@@ -168,7 +170,10 @@ public sealed class StartupToggleContractTests
 
         Assert.True(handler.Success, "找不到 OnRuleToggled。");
 
-        // The rules list has the same two-way binding and the same hazard.
-        Assert.Contains("item.Enabled == item.Rule.Enabled", handler.Value);
+        // The rules list has the same two-way binding and the same hazard, so it needs the
+        // same defence: read the switch itself and ignore a value that already matches the
+        // rule's stored state.
+        Assert.Contains("toggle.IsOn", handler.Value);
+        Assert.Contains("target == item.Rule.Enabled", handler.Value);
     }
 }
