@@ -59,6 +59,11 @@ public sealed partial class MainWindow : Window
         else
         {
             _services.Logger.Warn("The tray icon could not be created; the app will close instead of minimising.");
+
+            // Without a tray icon there is no way to undo hiding every window, so the
+            // hide operation must leave this window visible. Hiding it too would give the
+            // user no control to click and no indication of what happened.
+            _services.WindowHider.KeepOwnWindowVisible = true;
         }
 
         // Navigate to the first module.

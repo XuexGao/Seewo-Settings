@@ -51,6 +51,7 @@ public sealed class WindowHiderService
 
     private readonly IAppLogger _logger;
     private readonly object _gate = new();
+    private readonly int _ownProcessId;
 
     /// <summary>Handles hidden by the last <see cref="HideAll"/>, in hide order.</summary>
     private readonly List<nint> _hidden = [];
@@ -58,7 +59,27 @@ public sealed class WindowHiderService
     public WindowHiderService(IAppLogger? logger = null)
     {
         _logger = logger ?? NullLogger.Instance;
+        _ownProcessId = Environment.ProcessId;
     }
+
+    /// <summary>
+    /// Keep this application's own window visible even though everything else is hidden.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Normally the app hides itself along with everything else, because "hide everything
+    /// except system programs" includes it. The tray icon is then the way back, and its
+    /// window is message-only so it is never enumerated here.
+    /// </para>
+    /// <para>
+    /// That reasoning depends on the tray icon existing. When it could not be created -
+    /// the shell refuses <c>Shell_NotifyIcon</c> in some sessions - hiding this window too
+    /// would take away the only control that can undo the operation, leaving the user to
+    /// find Task Manager. The window is therefore kept visible in exactly that case, so
+    /// the 恢复所有窗口 button stays reachable.
+    /// </para>
+    /// </remarks>
+    public bool KeepOwnWindowVisible { get; set; }
 
     /// <summary>True when windows are currently hidden.</summary>
     public bool IsHidden
@@ -191,7 +212,7 @@ public sealed class WindowHiderService
     }
 
     /// <summary>True when a window should be hidden.</summary>
-    private static bool ShouldHide(nint hWnd)
+    private bool ShouldHide(nint hWnd)
     {
         if (!NativeMethods.IsWindowVisible(hWnd))
         {
@@ -201,6 +222,12 @@ public sealed class WindowHiderService
         NativeMethods.GetWindowThreadProcessId(hWnd, out var processId);
 
         if (processId == 0)
+        {
+            return false;
+        }
+
+        // Never hide ourselves when doing so would remove the only way to undo this.
+        if (KeepOwnWindowVisible && processId == _ownProcessId)
         {
             return false;
         }
