@@ -257,8 +257,14 @@ Seewo-Settings/
 8. **虚拟摄像头的画面内容尚未在真机上验证。** 自动化测试能证明摄像头被注册、被枚举、
    组件注册正确，但 CI 机器没有视频设备，无法读取真实画面。请在装有摄像头的 Windows 上运行：
    ```powershell
+   # Windows 11（Media Foundation 后端）：
    SeewoVirtualCamera.Setup.exe capture --frames 60 --out frame.png
+
+   # Windows 10（DirectShow 后端）——capture 读不到 DShow 设备，用 ffmpeg：
+   ffmpeg -list_devices true -f dshow -i dummy
    ```
+   `capture` 只能读 Media Foundation 设备，Windows 10 的 DirectShow 滤镜不在其中，
+   在那台机器上运行它一定会报「没有找到虚拟摄像头」。这不是安装失败。
 9. **第三方应用兼容性尚未实测。** Zoom / Teams / 微信 / OBS 能否选中并使用这个摄像头，
    需要逐个确认。
 10. **跨进程注入对真实杀软的表现尚未验证。**

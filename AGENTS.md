@@ -101,17 +101,30 @@ SeewoVirtualCamera.Setup.exe install
 SeewoVirtualCamera.Setup.exe capture --frames 60 --out frame.png
 ```
 
+**`capture` 只适用于 Windows 11 / Media Foundation 后端。** 它通过 `MFEnumDeviceSources`
+枚举设备，而 Windows 10 的 DirectShow 滤镜不会出现在那个列表里 —— 无论安装得多成功都读不到。
+在 Win10 上运行它必然返回 7，工具现在会直接说明这一点。
+
+Windows 10 上请改用：
+
+```powershell
+ffmpeg -list_devices true -f dshow -i dummy        # 列表中应出现 SeewoAssistant Virtual Camera
+ffmpeg -f dshow -i video="SeewoAssistant Virtual Camera" -frames:v 60 frame.png
+```
+
+或在 OBS / 微信 / 钉钉的摄像头下拉框里选它。
+
 `capture` 的退出码：
 
 | 码 | 含义 |
 | --- | --- |
 | 0 | 成功读到帧（输出里有帧数、实测帧率、亮度、画面是否变化） |
 | 4 | COM / Media Foundation 初始化失败 |
-| 7 | 没找到摄像头，或摄像头无法激活（**虚拟机、远程会话常见**） |
+| 7 | 没找到摄像头、无法激活（**虚拟机、远程会话常见**），或系统是 Win10 走了 DShow 后端 |
 | 8 | 已激活但没有输出帧，或流提前结束 |
 | 9 | 所有帧全黑（设备存在但无有效画面） |
 
-7 通常是环境问题，8 和 9 是真实缺陷。
+7 通常是环境限制或后端不匹配，8 和 9 是真实缺陷。
 
 ---
 
@@ -226,7 +239,39 @@ exe 放在根目录、DLL 只放在 `native/x64/` 时，安装永远失败（「
 **规则：** 任何与后端相关的行为都要 `switch (DetectCapability().Backend)`；
 判断只写一处，其他地方调用它。
 
-### 12. Toast 有硬性元素上限和场景前提
+### 12. Windows PowerShell 5.1 按 ANSI 代码页读取无 BOM 的 .ps1
+
+`scripts/*.ps1` **必须带 UTF-8 BOM**。中文 Windows 10 默认的 `powershell.exe` 是 5.1，
+它读取无 BOM 的 `.ps1` 时按系统 ANSI 代码页（中文系统是 GBK）解码。GBK 是双字节编码，
+某个汉字的尾字节 `0x9C` 会和紧随的闭合引号 `0x27` 组成一个双字节字符，**字符串永不闭合**，
+继而级联出十几条语法错误。CI 用 PowerShell 7（默认 UTF-8）所以从没发现。
+
+同一个脚本还有第二层故障：`-not $IsWindows -and <版本判断>`。`$IsWindows` 是 PowerShell 6+
+才有的自动变量，而脚本开了 `Set-StrictMode -Version Latest`，读未定义变量会抛
+`VariableIsUndefined`；`-and` **先求值左操作数**，所以版本判断还没来得及保护它就先抛了。
+
+**规则：** 新增 `.ps1` 必须带 BOM；版本相关的短路判断要把版本判断放前面。
+`build.yml` 有一步会检查 BOM 并用 5.1 的 parser 解析。
+
+### 13. 后台线程不能碰 XAML 控件
+
+WinUI 3 强制 UI 线程亲和性，在 `Task.Run` 里读任何 XAML 控件都会抛
+`RPC_E_WRONG_THREAD`。这个错误**编译期完全看不出来**，而且后果很严重：跨进程防截屏正是
+因为 `Task.Run` 里读了 `SelectedMode`（该属性读 `ModeRadio.SelectedIndex`）而 100% 失败 ——
+同时「保护本程序窗口」走另一条路径一直正常，所以功能看起来是好的。
+
+**规则：** 进入 `Task.Run` 之前把需要的数据（枚举、句柄、字符串）读进局部变量，只让纯数据
+跨界。`BackgroundThreadContractTests` 会扫描每个 `Task.Run` 体；它不只是找控件名，还会先
+收集每个文件里**读取了控件的成员**（属性也算），因为出事的正是这种一层间接。
+扫描前会剥掉注释，否则解释这个 bug 的注释本身会被误报。
+
+### 14. ListViewItem 没有自己的可访问名称
+
+`ListViewItem` 不会从内容派生 automation name，所以每个列表行对辅助技术和 UI 自动化来说
+都是「未命名列表项」，测试也无法按名字定位。`Styles/Theme.xaml` 里有一条全局
+`ListViewItem` 样式把名字绑定到条目本身，条目类需要重写 `ToString()` 返回用户看到的那行文字。
+
+### 15. Toast 有硬性元素上限和场景前提
 
 `ToastGeneric` 模板**最多 3 个文本元素**，第 4 个会让 `BuildNotification()` 抛
 `ArgumentException`，消息是「Maximum number of text elements added」。曾因此把标题、
@@ -239,7 +284,7 @@ exe 放在根目录、DLL 只放在 `native/x64/` 时，安装永远失败（「
 **规则：** 文本元素数 ≤ 3；先加按钮再设场景；用 `MuteAudio()` 静音；
 urgent 用 `IsUrgentScenarioSupported()` 把关。
 
-### 13. 结束服务托管的进程前必须先停服务
+### 16. 结束服务托管的进程前必须先停服务
 
 Seewo 有些组件以 Windows 服务方式运行，进程归 SCM 所有。直接 `TerminateProcess`
 会被 SCM 当成异常退出并**立刻拉起替代进程**，所以「杀不掉」；重启时还会把依赖的服务
@@ -248,7 +293,7 @@ Seewo 有些组件以 Windows 服务方式运行，进程归 SCM 所有。直接
 **规则：** `Terminate` 先用 `Win32_Service` 按 `ProcessId` 找到对应服务，
 `sc stop` 之后再结束进程。停不掉时要如实说明进程会回来，不要报一个不成立的「成功」。
 
-### 14. `ShowWindow` 的返回值不是「是否成功」
+### 17. `ShowWindow` 的返回值不是「是否成功」
 
 `ShowWindow` 返回的是**窗口之前是否可见**。恢复一个被隐藏的窗口时它返回 `FALSE`，
 但这**正是成功的表现**。把它当成功标志会让计数恒为 0，界面显示「没有需要恢复的窗口」，
@@ -256,7 +301,7 @@ Seewo 有些组件以 Windows 服务方式运行，进程归 SCM 所有。直接
 
 **规则：** `ShowWindow` 的返回值只用来判断「之前的状态」；需要知道新状态就另外查。
 
-### 15. 不要给原生 `.def` 文件写 `LIBRARY`
+### 18. 不要给原生 `.def` 文件写 `LIBRARY`
 
 `LIBRARY` 会把 `/OUT:` 写进生成的 `.exp`，与实际输出路径不符，产生 `LNK4070`。
 `EXPORTS` 才是关键。
@@ -432,7 +477,7 @@ UI 上如实说明并给出配置指引，不要提供不可靠的按钮。
 
 | 项目 | 为什么无法自动验证 | 怎么验证 |
 | --- | --- | --- |
-| 虚拟摄像头的实际画面 | CI 虚拟机没有视频栈，摄像头能枚举但无法激活（退出码 7） | 真机跑 `SeewoVirtualCamera.Setup.exe capture --frames 60 --out frame.png` |
+| 虚拟摄像头的实际画面 | CI 虚拟机没有视频栈；且 Win10 走 DirectShow，`capture` 读不到 | Win11 跑 `capture`；Win10 用 `ffmpeg -f dshow` 或 OBS 选该设备 |
 | Zoom/Teams/微信/OBS 兼容性 | 需要安装这些应用 | 真机逐个选用该摄像头 |
 | 跨进程注入对真实杀软 | 无法模拟主动防御 | 在开着 Defender/360/火绒的机器上测试 |
 | 希沃软件的扫描/挂起/断网/禁自启 | CI 上没装希沃 | 在装了希沃的教室机上测试 |
@@ -440,7 +485,9 @@ UI 上如实说明并给出配置指引，不要提供不可靠的按钮。
 | 视觉细节 | 截图能确认布局无崩溃，不能替代人眼 | 看 `test.yml` 的截图 artifact |
 
 **CI 绿灯的含义：** 能编译、能链接、单测通过、应用能启动、7 个页面能渲染、无 ERROR 日志、
-COM 注册正确、摄像头能被创建和枚举。**不**包含上表任何一项。
+COM 注册正确、摄像头能被创建和枚举；PowerShell 脚本带 BOM 且能被 5.1 解析；隐藏/恢复窗口的
+计数非零；系统通知成功发出；没有未命名控件；没有任何 `Task.Run` 触碰 UI 控件。
+**不**包含上表任何一项。
 
 发现上表问题时的处理方式：先加一条能复现的自动化断言（如果可能），再修。这次的一批 bug 里，
 共享通道名字不一致、安装包缺 DLL、希沃扫描中止、注入阻塞 UI 线程都是可以自动化的，
