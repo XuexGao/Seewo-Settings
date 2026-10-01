@@ -1333,8 +1333,16 @@ if (Test-Path $logPath) {
         # whose build number satisfies the requirement. It was misreported as an OS
         # version problem for a long time, so it is called out explicitly rather than
         # being filed under "failed for a reason".
-        Write-Fail ('无法解析 SetWindowDisplayAffinity 的导出地址。'
-                    + '这通常意味着 PE 导出表解析又算错了偏移，而不是系统版本问题。')
+        # Built with -join rather than a parenthesised expression spanning lines: the
+        # Windows PowerShell 5.1 parser rejects a '+' that begins a continuation line
+        # inside parentheses, and this file has to parse under 5.1 because that is what a
+        # stock Windows 10 has.
+        $exportParseMessage = @(
+            '无法解析 SetWindowDisplayAffinity 的导出地址。'
+            '这通常意味着 PE 导出表解析又算错了偏移，而不是系统版本问题。'
+        ) -join ''
+
+        Write-Fail $exportParseMessage
     }
     elseif ($logText -match 'Applying capture protection failed') {
         # A failure is acceptable here; an unexplained one is not.
