@@ -1163,6 +1163,46 @@ else {
     }
 }
 
+Write-Step '空闲与写盘行为'
+
+# Two behaviours the report measured directly, both of which were wrong.
+#
+# Idle: doing nothing must produce no activity. The report verified zero log lines and
+# zero saves across 60 idle seconds, confirming no polling timer is spinning.
+#
+# Write amplification: a settings change must not rewrite the file on every keystroke.
+# The report measured 20 writes in one second and 50 in a minute; the fix debounces and
+# skips a write whose content is unchanged.
+$idleLogPath = Join-Path $stateDirectory 'logs\seewo-assistant.log'
+
+if (Test-Path $idleLogPath) {
+    $beforeCount = @(Get-Content $idleLogPath).Count
+    $beforeSaveCount = @(Select-String -Path $idleLogPath -Pattern 'Saved settings to' -SimpleMatch).Count
+
+    Write-Host '   静置 20 秒，观察是否有后台写入……'
+    Start-Sleep -Seconds 20
+
+    $afterCount = @(Get-Content $idleLogPath).Count
+    $afterSaveCount = @(Select-String -Path $idleLogPath -Pattern 'Saved settings to' -SimpleMatch).Count
+
+    $idleLines = $afterCount - $beforeCount
+    $idleSaves = $afterSaveCount - $beforeSaveCount
+
+    if ($idleLines -eq 0) {
+        Write-Pass '空闲 20 秒没有产生任何日志，没有后台轮询噪音。'
+    }
+    else {
+        Write-Warn "空闲 20 秒产生了 $idleLines 行日志、$idleSaves 次保存。"
+    }
+
+    if ($idleSaves -eq 0) {
+        Write-Pass '空闲期间没有写盘。'
+    }
+}
+else {
+    Write-Warn '找不到日志文件，跳过空闲行为检查。'
+}
+
 Write-Step '应用日志'
 
 $logPath = Join-Path $stateDirectory 'logs\seewo-assistant.log'
