@@ -497,6 +497,13 @@ struct Options {
     // Used by "capture".
     int FrameCount = 60;
     std::wstring OutputPath;
+
+    // Explicit path to the media source DLL, or a directory containing it.
+    //
+    // Needed because a single-file published app extracts this tool into a temporary
+    // directory that does not contain the DLL, so "look beside the executable" fails.
+    // The app passes the real location instead.
+    std::wstring DllPath;
 };
 
 Options ParseCommandLine() {
@@ -539,6 +546,8 @@ Options ParseCommandLine() {
             }
         } else if (arg == L"--out" && i + 1 < args.size()) {
             options.OutputPath = args[++i];
+        } else if (arg == L"--dll" && i + 1 < args.size()) {
+            options.DllPath = args[++i];
         } else if (arg == L"--help" || arg == L"-h" || arg == L"/?") {
             options.Command = L"help";
         } else if (options.Command.empty()) {
@@ -581,11 +590,41 @@ int wmain() {
         // a bare "DLL not found".
         const std::wstring directory = GetExecutableDirectory();
 
-        const std::wstring candidates[] = {
-            directory + L"\\" + kMediaSourceDllName,
-            directory + L"\\native\\x64\\" + kMediaSourceDllName,
-            directory + L"\\..\\native\\x64\\" + kMediaSourceDllName,
-        };
+        std::vector<std::wstring> candidates;
+
+        // An explicit --dll wins: the caller knows where the file really is, and for a
+        // single-file published app that is the only correct answer, because this tool
+        // has been extracted into a temporary directory alongside nothing.
+        if (!options.DllPath.empty()) {
+            const std::wstring& requested = options.DllPath;
+
+            // Accept either the DLL itself or a directory containing it.
+            if (::GetFileAttributesW(requested.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                const DWORD attributes = ::GetFileAttributesW(requested.c_str());
+                if (attributes != INVALID_FILE_ATTRIBUTES &&
+                    (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+                    candidates.push_back(requested + L"\\" + kMediaSourceDllName);
+                } else {
+                    candidates.push_back(requested);
+                }
+            } else {
+                candidates.push_back(requested + L"\\" + kMediaSourceDllName);
+            }
+        }
+
+        // Then the usual relative locations.
+        candidates.push_back(directory + L"\\" + kMediaSourceDllName);
+        candidates.push_back(directory + L"\\native\\x64\\" + kMediaSourceDllName);
+        candidates.push_back(directory + L"\\..\\native\\x64\\" + kMediaSourceDllName);
+
+        // Finally the directory this process was started from. A single-file app runs
+        // the tool with the archive's own folder as the working directory, which is
+        // where the shipped DLL actually lives.
+        wchar_t currentDirectory[MAX_PATH] = {};
+        const DWORD currentLength = ::GetCurrentDirectoryW(ARRAYSIZE(currentDirectory), currentDirectory);
+        if (currentLength > 0 && currentLength < ARRAYSIZE(currentDirectory)) {
+            candidates.push_back(std::wstring(currentDirectory) + L"\\" + kMediaSourceDllName);
+        }
 
         std::wstring dllPath;
         for (const auto& candidate : candidates) {
@@ -602,6 +641,7 @@ int wmain() {
                 Print(L"         %ls", candidate.c_str());
             }
             Print(L"       请确认发行包完整解压，且没有单独移动过 exe 文件。");
+            Print(L"       也可以显式指定位置：--dll \"<SeewoVirtualCamera.dll 所在目录>\"");
             return 2;
         }
 

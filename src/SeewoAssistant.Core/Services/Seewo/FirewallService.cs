@@ -91,6 +91,12 @@ public sealed class FirewallService
     /// </summary>
     public ActionResult Block(string executablePath)
     {
+        // Logged on entry, not only on success. The test report found the rules were
+        // never created and the log contained nothing at all, which made it impossible
+        // to tell "never called" from "called and failed silently". Every outcome below
+        // is now traceable.
+        _logger.Info($"Firewall block requested for '{executablePath}'.");
+
         ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
 
         if (!OperatingSystem.IsWindows())
@@ -100,6 +106,7 @@ public sealed class FirewallService
 
         if (!File.Exists(executablePath))
         {
+            _logger.Warn($"Firewall block aborted: file not found at '{executablePath}'.");
             return ActionResult.Fail($"找不到可执行文件：{executablePath}");
         }
 
@@ -158,6 +165,8 @@ public sealed class FirewallService
     /// <summary>Removes the block rules for an executable. Idempotent.</summary>
     public ActionResult Unblock(string executablePath)
     {
+        _logger.Info($"Firewall unblock requested for '{executablePath}'.");
+
         ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
 
         if (!OperatingSystem.IsWindows())
@@ -194,6 +203,8 @@ public sealed class FirewallService
     /// <summary>Removes every rule this app has ever created. Used on uninstall.</summary>
     public ActionResult RemoveAllRules()
     {
+        _logger.Info("Removing every firewall rule this application created.");
+
         if (!OperatingSystem.IsWindows())
         {
             return ActionResult.Fail("防火墙规则只在 Windows 上可用。");

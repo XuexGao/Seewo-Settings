@@ -83,7 +83,8 @@
 
                                     <CheckBox Grid.Column="0"
                                               IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                              MinWidth="0" />
+                                              MinWidth="0"
+                                              AutomationProperties.Name="{Binding Name}" />
 
                                     <StackPanel Grid.Column="1" Spacing="2">
                                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />

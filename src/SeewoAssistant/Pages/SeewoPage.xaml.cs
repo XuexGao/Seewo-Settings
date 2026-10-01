@@ -550,9 +550,18 @@ public sealed partial class SeewoPage : ModulePageBase
 
         if (string.IsNullOrWhiteSpace(item.Process.Path))
         {
+            // Logged as well as reported: this path used to return silently, so an
+            // attempt to block a process whose path could not be read left no trace.
+            Services.Logger.Warn(
+                $"Cannot block network access for '{item.Process.ProcessName}' (PID {item.Process.ProcessId}): " +
+                "its executable path could not be read.");
+
             Report($"无法获取「{item.Process.ProcessName}」的完整路径，无法创建防火墙规则。", StatusSeverity.Warning);
             return;
         }
+
+        Services.Logger.Info(
+            $"Blocking network access for '{item.Process.ProcessName}' at '{item.Process.Path}'.");
 
         await RunGuardedAsync($"禁止「{item.Process.ProcessName}」联网", async () =>
         {
@@ -792,6 +801,16 @@ public sealed partial class SeewoPage : ModulePageBase
         public string Notes => Rule.Notes;
 
         public string ConfidenceLabel => Rule.Notes.StartsWith("已识别", StringComparison.Ordinal) ? "已识别" : "可能";
+
+        /// <summary>
+        /// Identifies this row to assistive technology.
+        /// </summary>
+        /// <remarks>
+        /// The list's ListViewItem binds its automation name to the item, and without
+        /// this override that name is the type name - useless to a screen reader and to
+        /// UI Automation.
+        /// </remarks>
+        public override string ToString() => $"{Name} （{ConfidenceLabel}）：{Pattern}";
     }
 
     /// <summary>Presentation wrapper for a configured rule.</summary>
@@ -864,6 +883,10 @@ public sealed partial class SeewoPage : ModulePageBase
         }
 
         public string StateLabel => IsNetworkBlocked ? "已断网" : "运行中";
+
+        /// <inheritdoc cref="DiscoveredRuleItem.ToString"/>
+        public override string ToString() =>
+            $"{ProcessName}（PID {ProcessId}）{StateLabel}";
     }
 
     /// <summary>Presentation wrapper for a startup entry.</summary>
@@ -891,6 +914,9 @@ public sealed partial class SeewoPage : ModulePageBase
             get => Entry.Enabled;
             set => Entry.Enabled = value;
         }
+
+        /// <inheritdoc cref="DiscoveredRuleItem.ToString"/>
+        public override string ToString() => $"{KindLabel} {Name}";
 
         public string KindLabel => Entry.Kind switch
         {

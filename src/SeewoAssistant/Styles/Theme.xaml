@@ -62,4 +62,21 @@
         <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
 
+    <!--
+        Every list row exposes its own content as the accessible name.
+
+        A ListViewItem has no automation name of its own, so a screen reader announces
+        the row as an unlabelled list item and UI Automation cannot address it by name.
+        The test report counted forty such controls across the app, which is also why
+        the automated sweep could never click a specific row.
+
+        AutomationProperties.Name is set from the item's ToString(), which each view model
+        overrides to return the identifying text the user sees. A view model that does not
+        override it simply contributes no name, which is the previous behaviour rather
+        than a regression.
+    -->
+    <Style TargetType="ListViewItem">
+        <Setter Property="AutomationProperties.Name" Value="{Binding}" />
+    </Style>
+
 </ResourceDictionary>

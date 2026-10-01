@@ -104,8 +104,17 @@ public sealed class AppServices : IAsyncDisposable
     public event EventHandler<StatusMessage>? StatusReported;
 
     /// <summary>Publishes a message to the shell's status bar.</summary>
+    /// <summary>
+    /// The page currently on screen, used to attribute status messages.
+    /// </summary>
+    /// <remarks>
+    /// Set by the shell as it navigates. A message reported while this is null belongs to
+    /// the shell and is never cleared by navigation.
+    /// </remarks>
+    public string? CurrentPage { get; set; }
+
     public void Report(string message, StatusSeverity severity = StatusSeverity.Informational) =>
-        StatusReported?.Invoke(this, new StatusMessage(message, severity));
+        StatusReported?.Invoke(this, new StatusMessage(message, severity, CurrentPage));
 
     /// <summary>
     /// Reloads settings from disk and pushes them onto the services. Used after an
@@ -117,7 +126,17 @@ public sealed class AppServices : IAsyncDisposable
         ApplySettingsToServices();
     }
 
+    /// <summary>Signature of the task list at the last scheduler reload.</summary>
+    private string? _schedulerSignature;
+
     /// <summary>Pushes the current settings onto the services that cache them.</summary>
+    /// <remarks>
+    /// The scheduler is only reloaded when the task list actually differs from the last
+    /// reload. <see cref="TaskSchedulerService.SetTasks"/> recomputes every task's next
+    /// run and logs a line, and this method runs on every settings change - so without
+    /// the comparison, changing the theme also reloaded the scheduler. The test report
+    /// showed 50 such reloads in a single minute.
+    /// </remarks>
     public void ApplySettingsToServices()
     {
         PrivacyMonitor.Options = Settings.ToPrivacyOptions();
@@ -127,19 +146,118 @@ public sealed class AppServices : IAsyncDisposable
         VirtualCamera.FrameHeight = Settings.VirtualCameraHeight;
         VirtualCamera.FramesPerSecond = Settings.VirtualCameraFps;
 
-        Scheduler.SetTasks(Settings.ScheduledTasks);
+        ApplyScheduledTasks();
     }
 
+    /// <summary>Reloads the scheduler only when the task list has changed.</summary>
+    private void ApplyScheduledTasks()
+    {
+        var tasks = Settings.ScheduledTasks;
+        var signature = SettingsStore.SerializeTasks(tasks);
+
+        if (string.Equals(signature, _schedulerSignature, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _schedulerSignature = signature;
+        Scheduler.SetTasks(tasks);
+    }
+
+    /// <summary>Guards the debounce state below.</summary>
+    private readonly object _saveGate = new();
+
+    private Timer? _saveTimer;
+    private bool _savePending;
+    private string? _lastSavedJson;
+
+    /// <summary>
+    /// How long to wait for further changes before writing settings to disk.
+    /// </summary>
+    /// <remarks>
+    /// Toggling a switch writes immediately, but dragging a slider or clicking several
+    /// settings in a row produces a burst. Without this the file was rewritten on every
+    /// keystroke - the test report measured 20 writes in one second and 50 in a minute,
+    /// each accompanied by a scheduler reload and a DEBUG line.
+    /// </remarks>
+    private static readonly TimeSpan SaveDebounce = TimeSpan.FromMilliseconds(400);
+
     /// <summary>Persists settings and reports the outcome.</summary>
+    /// <remarks>
+    /// The write is debounced and the content is compared against the last write, so a
+    /// burst of changes produces one save and an unchanged save produces none.
+    /// </remarks>
     public bool SaveSettings()
     {
         // The scheduler owns the live task list, so copy it back before writing.
         Settings.ScheduledTasks = Scheduler.Tasks.ToList();
+
+        lock (_saveGate)
+        {
+            _savePending = true;
+
+            // Restart the window on every change, so a continuous stream of edits
+            // coalesces into a single write once the user pauses.
+            _saveTimer ??= new Timer(_ => FlushPendingSave(), null, Timeout.Infinite, Timeout.Infinite);
+            _saveTimer.Change(SaveDebounce, Timeout.InfiniteTimeSpan);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Writes settings now, cancelling any pending debounced save.
+    /// </summary>
+    /// <remarks>
+    /// Called on shutdown and by anything that needs the file to be current immediately.
+    /// </remarks>
+    public bool SaveSettingsNow()
+    {
+        lock (_saveGate)
+        {
+            _saveTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            _savePending = true;
+        }
+
+        return FlushPendingSave();
+    }
+
+    /// <summary>Performs the deferred write, if one is outstanding.</summary>
+    private bool FlushPendingSave()
+    {
+        string json;
+
+        lock (_saveGate)
+        {
+            if (!_savePending)
+            {
+                return true;
+            }
+
+            _savePending = false;
+            json = SettingsStore.Serialize(Settings);
+        }
+
+        // Applying settings to the services is cheap and idempotent, but the scheduler
+        // reload is not: it recomputes every task's next run. Both are skipped when the
+        // serialised content is byte-identical to the last write, which is what stops a
+        // re-entrant change from causing another save.
+        var unchanged = string.Equals(json, _lastSavedJson, StringComparison.Ordinal);
+
         ApplySettingsToServices();
+
+        if (unchanged)
+        {
+            return true;
+        }
 
         var result = SettingsStore.Save(Settings);
 
-        if (!result.Success)
+        if (result.Success)
+        {
+            _lastSavedJson = json;
+        }
+        else
         {
             Report(result.Message, StatusSeverity.Error);
         }
@@ -196,6 +314,20 @@ public sealed class AppServices : IAsyncDisposable
     /// </summary>
     public async ValueTask DisposeAsync()
     {
+        // Flush any debounced save before anything else. A change made in the last
+        // fraction of a second before exit would otherwise be lost, which is exactly the
+        // kind of bug that only shows up as "my setting did not stick" much later.
+        try
+        {
+            _saveTimer?.Dispose();
+            _saveTimer = null;
+            SaveSettingsNow();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("Flushing pending settings on shutdown failed.", ex);
+        }
+
         try
         {
             Scheduler.Stop();
@@ -271,5 +403,18 @@ public enum StatusSeverity
     Error,
 }
 
-/// <summary>A message for the shell's status bar.</summary>
-public sealed record StatusMessage(string Text, StatusSeverity Severity);
+/// <summary>
+/// A message for the shell's status bar.
+/// </summary>
+/// <param name="Text">The message to show.</param>
+/// <param name="Severity">How prominent it is.</param>
+/// <param name="SourcePage">
+/// The page that produced it, or null for a message that belongs to the shell itself.
+/// </param>
+/// <remarks>
+/// The source is recorded so the shell can drop a message when the user navigates away
+/// from the page it came from. Without it the bar kept showing, for example, "默认保护方式
+/// 已设为「穿透隐身」" while the Seewo page was open - the text described an action the
+/// user had taken somewhere else entirely.
+/// </remarks>
+public sealed record StatusMessage(string Text, StatusSeverity Severity, string? SourcePage = null);

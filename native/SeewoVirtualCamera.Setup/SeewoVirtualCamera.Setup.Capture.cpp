@@ -27,6 +27,8 @@
 #pragma comment(lib, "mfreadwrite.lib")
 #pragma comment(lib, "windowscodecs.lib")
 
+#include <winternl.h>   // RTL_OSVERSIONINFOW, for the real OS build number
+
 #include <cstdio>
 #include <cstring>   // memcmp, used by the frame comparison
 #include <string>
@@ -249,6 +251,45 @@ void AppendReport(std::wstring* summary,
 
 }  // namespace
 
+// Builds a message that distinguishes "not installed" from "this backend cannot be
+// read by this command".
+//
+// The Windows 10 DirectShow filter does not appear in the Media Foundation device list,
+// so on that system `capture` can never find it no matter how the install went. Saying
+// so is far more useful than the generic "run install first", which sends the user to
+// re-run a step that already succeeded.
+std::wstring DescribeMissingCamera(UINT32 deviceCount) {
+    RTL_OSVERSIONINFOW version = {};
+    version.dwOSVersionInfoSize = sizeof(version);
+
+    HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
+    bool isWindows11OrLater = false;
+
+    if (ntdll != nullptr) {
+        using RtlGetVersionFn = LONG(WINAPI*)(PRTL_OSVERSIONINFOW);
+        auto rtlGetVersion = reinterpret_cast<RtlGetVersionFn>(
+            ::GetProcAddress(ntdll, "RtlGetVersion"));
+
+        if (rtlGetVersion != nullptr && rtlGetVersion(&version) == 0) {
+            isWindows11OrLater = version.dwBuildNumber >= 22000;
+        }
+    }
+
+    if (!isWindows11OrLater) {
+        return L"本命令只能读取 Media Foundation 虚拟摄像头，而当前系统（内部版本低于 22000）"
+               L"使用的是 DirectShow 回退方案，该方案不会出现在 Media Foundation 的设备列表中。"
+               L"这不是安装失败。请改用 DirectShow 应用验证："
+               L"ffmpeg -list_devices true -f dshow -i dummy，"
+               L"或在 OBS / 微信 / 钉钉的摄像头列表中选择 SeewoAssistant Virtual Camera。";
+    }
+
+    if (deviceCount == 0) {
+        return L"系统没有报告任何视频输入设备。请先运行 install 注册组件并创建摄像头实例。";
+    }
+
+    return L"已枚举到视频设备，但没有找到本程序的虚拟摄像头。请运行 install 或 create 创建它。";
+}
+
 int CaptureFrames(const std::wstring& friendlyNameSubstring,
                   int frameCount,
                   const std::wstring& outputPath,
@@ -287,7 +328,12 @@ int CaptureFrames(const std::wstring& friendlyNameSubstring,
         const int selected = FindVirtualCamera(devices, deviceCount, friendlyNameSubstring);
 
         if (selected < 0) {
-            *error = L"没有找到虚拟摄像头。请先运行 install 或 create。";
+            // Say which backend this command can actually serve. On Windows 10 the
+            // camera is a DirectShow filter, which Media Foundation cannot enumerate, so
+            // "run install first" is misleading advice - install already succeeded and
+            // this subcommand simply does not apply.
+            const std::wstring reason = DescribeMissingCamera(deviceCount);
+            *error = reason;
             exitCode = 7;
             break;
         }

@@ -173,8 +173,15 @@ public sealed partial class MainWindow : Window
 
         if (ContentFrame.CurrentSourcePageType != pageType)
         {
+            // Clear any message left by the page being left. It described an action taken
+            // there, so showing it over a different page is misleading.
+            ClearStatusFromOtherPages(tag);
+
             ContentFrame.Navigate(pageType, _services);
         }
+
+        // Attribute anything the incoming page reports to that page.
+        _services.CurrentPage = tag;
     }
 
     private void OnOpenSettings(object sender, RoutedEventArgs e)
@@ -326,8 +333,31 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.TryEnqueue(() => ShowStatus(message));
     }
 
+    /// <summary>The page whose message is currently displayed, if any.</summary>
+    private string? _statusSourcePage;
+
+    /// <summary>
+    /// Clears the status bar when the message came from a different page.
+    /// </summary>
+    /// <param name="incomingPage">The page being navigated to.</param>
+    private void ClearStatusFromOtherPages(string incomingPage)
+    {
+        if (_statusSourcePage is null ||
+            string.Equals(_statusSourcePage, incomingPage, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _statusSourcePage = null;
+        StatusText.Text = string.Empty;
+        StatusIcon.Glyph = "\uE946";
+    }
+
     private void ShowStatus(StatusMessage message)
     {
+        // Remember where the message came from so a later navigation can drop it.
+        _statusSourcePage = message.SourcePage;
+
         StatusText.Text = message.Text;
 
         StatusIcon.Glyph = message.Severity switch

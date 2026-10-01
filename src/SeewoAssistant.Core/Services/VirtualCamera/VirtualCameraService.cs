@@ -440,6 +440,35 @@ public sealed class VirtualCameraService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Locates the media source DLL so the tool can be told where it is.
+    /// </summary>
+    /// <remarks>
+    /// A single-file published app extracts <c>Setup.exe</c> into a temporary directory
+    /// that contains nothing else, so the tool's own "look beside myself" search fails
+    /// and the in-app install reports "找不到媒体源 DLL". The app knows the real
+    /// location, so it passes it with <c>--dll</c>.
+    /// </remarks>
+    private string? ResolveMediaSourceDllDirectory()
+    {
+        string[] candidates =
+        [
+            ToolsDirectory,
+            Path.Combine(ToolsDirectory, "native", "x64"),
+            Path.Combine(ToolsDirectory, "native", Environment.Is64BitProcess ? "x64" : "x86"),
+        ];
+
+        foreach (var directory in candidates)
+        {
+            if (File.Exists(Path.Combine(directory, "SeewoVirtualCamera.dll")))
+            {
+                return directory;
+            }
+        }
+
+        return null;
+    }
+
     private async Task<ActionResult> RunSetupAsync(string arguments, CancellationToken cancellationToken)
     {
         if (!IsSetupToolAvailable)
@@ -447,6 +476,16 @@ public sealed class VirtualCameraService : IAsyncDisposable
             return ActionResult.Fail(
                 $"未找到 {Path.GetFileName(SetupToolPath)}。请确认已解压完整的发行包，" +
                 "或先运行 scripts\\Install-Native.ps1 安装原生组件。");
+        }
+
+        // Point the tool at the DLL explicitly. Without this, a single-file build had
+        // no working in-app install path at all, and the documented fallback
+        // (Install-Native.ps1) was itself broken.
+        var dllDirectory = ResolveMediaSourceDllDirectory();
+
+        if (dllDirectory is not null)
+        {
+            arguments = $"{arguments} --dll \"{dllDirectory}\"";
         }
 
         try

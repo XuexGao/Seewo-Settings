@@ -255,6 +255,35 @@ public sealed class SettingsStore
         }
     }
 
+    /// <summary>
+    /// Serialises settings exactly as <see cref="Save"/> would write them.
+    /// </summary>
+    /// <remarks>
+    /// Used to tell whether a save would change anything. It must use the same options as
+    /// the write itself, or the comparison is meaningless, so the options stay private to
+    /// this class and every caller goes through here.
+    /// </remarks>
+    public static string Serialize(AppSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        return JsonSerializer.Serialize(settings, SettingsJson.Options);
+    }
+
+    /// <summary>
+    /// Produces a stable signature for a task list, for change detection.
+    /// </summary>
+    /// <remarks>
+    /// Serialising is the simplest way to compare structurally, and it uses the same
+    /// options as the file so a round-trip through disk cannot change the signature.
+    /// </remarks>
+    public static string SerializeTasks(IReadOnlyList<Services.Scheduling.ScheduledTaskDefinition> tasks)
+    {
+        ArgumentNullException.ThrowIfNull(tasks);
+
+        return JsonSerializer.Serialize(tasks, SettingsJson.Options);
+    }
+
     /// <summary>Saves settings atomically.</summary>
     public ActionResult Save(AppSettings settings)
     {
@@ -266,7 +295,7 @@ public sealed class SettingsStore
             {
                 System.IO.Directory.CreateDirectory(Directory);
 
-                var json = JsonSerializer.Serialize(settings, SettingsJson.Options);
+                var json = Serialize(settings);
                 var temporary = FilePath + ".tmp";
 
                 File.WriteAllText(temporary, json);

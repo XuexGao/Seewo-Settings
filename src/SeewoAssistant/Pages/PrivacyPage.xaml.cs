@@ -636,6 +636,16 @@ public sealed class PrivacyActivityRow
             : usageEvent.ApplicationId;
     }
 
+    /// <summary>
+    /// Identifies this row to assistive technology.
+    /// </summary>
+    /// <remarks>
+    /// The list's ListViewItem binds its automation name to the item; without this the
+    /// name would be the type name.
+    /// </remarks>
+    public override string ToString() =>
+        $"{DeviceLabel}：{ApplicationLabel}，{TimeLabel}";
+
     public string DeviceLabel { get; }
 
     public string ApplicationLabel { get; }

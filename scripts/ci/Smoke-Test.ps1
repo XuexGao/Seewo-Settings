@@ -834,7 +834,10 @@ function Assert-UnsafeListIsSane {
 Assert-UnsafeListIsSane
 
 function Get-SafeButtons {
-    param([System.Windows.Automation.AutomationElement]$Window)
+    param(
+        [System.Windows.Automation.AutomationElement]$Window,
+        [string]$PageName = '(unknown)'
+    )
 
     # Include check boxes and toggles as well as buttons: the settings pages express
     # almost everything as a ToggleSwitch, and a sweep that only clicked Buttons would
@@ -850,14 +853,24 @@ function Get-SafeButtons {
 
     $buttons = $Window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
     $result = @()
+    $unnamed = 0
 
     foreach ($button in $buttons) {
         $name = $button.Current.Name
 
         if ([string]::IsNullOrWhiteSpace($name)) {
-            # An unnamed button is itself a defect: it is unreachable for assistive
-            # technology. Report it rather than skipping silently.
-            Write-Warn '发现一个没有名称的按钮（辅助技术无法识别，测试也无法点击）。'
+            # An unnamed control is a defect in its own right: it is unreachable for
+            # assistive technology. Report which control it is, not just that one exists -
+            # the previous message named neither the page nor the control, so a run that
+            # reported forty of them gave no clue where to look.
+            $unnamed++
+            $automationId = $button.Current.AutomationId
+            $type = $button.Current.ControlType.ProgrammaticName
+
+            Write-Warn ("未命名控件：page='$PageName' type=$type id='$automationId' " +
+                        "class='$($button.Current.ClassName)' " +
+                        "bounds=$($button.Current.BoundingRectangle)")
+
             continue
         }
 
@@ -918,6 +931,10 @@ function Get-SafeButtons {
         }
 
         $result += $button
+    }
+
+    if ($unnamed -gt 0) {
+        Write-Host "   「$PageName」有 $unnamed 个未命名控件。" -ForegroundColor Yellow
     }
 
     return $result
@@ -988,7 +1005,7 @@ foreach ($entry in $interactionPlan) {
 
         $contentRoot = Get-ContentRoot -Window $window
 
-        $candidates = @(Get-SafeButtons -Window $contentRoot |
+        $candidates = @(Get-SafeButtons -Window $contentRoot -PageName $entry.Page |
             Where-Object { $clickedNames -notcontains $_.Current.Name } |
             Sort-Object -Property @{
                 Expression = {
