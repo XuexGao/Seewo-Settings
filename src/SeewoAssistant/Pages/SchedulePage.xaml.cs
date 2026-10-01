@@ -23,7 +23,6 @@ public sealed partial class SchedulePage : ModulePageBase
     private readonly List<ActionCard> _actionCards = [];
 
     private ScheduledTaskDefinition? _editingTask;
-    private bool _suppressTaskToggle;
     private bool _suppressCronValidation;
 
     /// <summary>Human-readable labels for each action kind, in menu order.</summary>
@@ -78,15 +77,12 @@ public sealed partial class SchedulePage : ModulePageBase
 
     private void ReloadTasks()
     {
-        _suppressTaskToggle = true;
         _tasks.Clear();
 
         foreach (var task in Services.Scheduler.Tasks)
         {
             _tasks.Add(new TaskItem(task));
         }
-
-        _suppressTaskToggle = false;
 
         NoTasksText.Visibility = _tasks.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -99,12 +95,25 @@ public sealed partial class SchedulePage : ModulePageBase
 
     private void OnTaskToggled(object sender, RoutedEventArgs e)
     {
-        if (_suppressTaskToggle || sender is not ToggleSwitch { DataContext: TaskItem item })
+        if (sender is not ToggleSwitch { DataContext: TaskItem item } toggle)
         {
             return;
         }
 
-        item.Task.Enabled = item.Enabled;
+        // Same guard as the Seewo startup list: a refresh re-presents the tasks, the
+        // binding sets IsOn, and Toggled fires without the user having clicked anything.
+        // The switch's own value is read so the decision does not depend on whether the
+        // binding has written back yet.
+        var target = toggle.IsOn;
+
+        if (target == item.Task.Enabled)
+        {
+            item.Enabled = target;
+            return;
+        }
+
+        item.Enabled = target;
+        item.Task.Enabled = target;
 
         // The scheduler caches next-run times, so re-applying the list is what makes
         // a toggle take effect immediately rather than at the next tick.
@@ -112,7 +121,7 @@ public sealed partial class SchedulePage : ModulePageBase
         Services.SaveSettings();
         ReloadTasks();
 
-        Report($"任务「{item.Task.Name}」已{(item.Enabled ? "启用" : "停用")}。");
+        Report($"任务「{item.Task.Name}」已{(target ? "启用" : "停用")}。");
     }
 
     private async void OnRunTaskNow(object sender, RoutedEventArgs e)
@@ -540,6 +549,7 @@ public sealed partial class SchedulePage : ModulePageBase
         internal TaskItem(ScheduledTaskDefinition task)
         {
             Task = task;
+            Enabled = task.Enabled;
         }
 
         internal ScheduledTaskDefinition Task { get; }
@@ -548,11 +558,15 @@ public sealed partial class SchedulePage : ModulePageBase
 
         public string Cron => Task.Cron;
 
-        public bool Enabled
-        {
-            get => Task.Enabled;
-            set => Task.Enabled = value;
-        }
+        /// <summary>
+        /// The state shown in the list, written back to the task only once applied.
+        /// </summary>
+        /// <remarks>
+        /// Not a pass-through for the same reason as StartupItem: the two-way binding
+        /// assigns this while the row container is created, which raises Toggled, and a
+        /// pass-through would make that assignment indistinguishable from a click.
+        /// </remarks>
+        public bool Enabled { get; set; }
 
         public string Description
         {

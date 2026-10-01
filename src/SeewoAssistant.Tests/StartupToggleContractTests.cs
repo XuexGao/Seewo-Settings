@@ -47,9 +47,9 @@ public sealed class StartupToggleContractTests
         throw new InvalidOperationException("找不到仓库根目录。");
     }
 
-    private static string ReadPage() =>
+    private static string ReadPage(string pageName = "SeewoPage") =>
         File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(), "src", "SeewoAssistant", "Pages", "SeewoPage.xaml.cs"));
+            FindRepositoryRoot(), "src", "SeewoAssistant", "Pages", $"{pageName}.xaml.cs"));
 
     [Fact]
     public void TheStartupViewModelsShownStateIsNotAPassThrough()
@@ -113,10 +113,47 @@ public sealed class StartupToggleContractTests
         // The original approach used a boolean set and cleared around the collection
         // update. It cannot work, because the event it was meant to suppress arrives
         // later. If one reappears, the bug is back.
-        var source = ReadPage();
+        foreach (var page in new[] { "SeewoPage", "SchedulePage" })
+        {
+            var source = ReadPage(page);
 
-        Assert.DoesNotContain("_suppressStartupToggle", source);
-        Assert.DoesNotContain("_suppressRuleToggle", source);
+            Assert.DoesNotContain("_suppressStartupToggle", source);
+            Assert.DoesNotContain("_suppressRuleToggle", source);
+            Assert.DoesNotContain("_suppressTaskToggle", source);
+        }
+    }
+
+    [Fact]
+    public void TheScheduleTaskListUsesTheSameGuard()
+    {
+        // Same construct, same hazard: ReloadTasks re-presents the tasks and the binding
+        // raises Toggled. The consequence is a stored task flag rather than a machine
+        // change, but the mechanism and the fix are identical.
+        var source = ReadPage("SchedulePage");
+
+        var item = Regex.Match(
+            source,
+            @"private sealed class TaskItem\s*\{(?P<body>.*?)\n    \}",
+            RegexOptions.Singleline);
+
+        Assert.True(item.Success, "找不到 TaskItem 类。");
+
+        var enabled = Regex.Match(
+            item.Groups["body"].Value,
+            @"public bool Enabled\s*\{(?P<a>.*?)\}",
+            RegexOptions.Singleline);
+
+        Assert.True(enabled.Success, "TaskItem 上找不到 Enabled 属性。");
+        Assert.DoesNotContain("Task.Enabled", enabled.Groups["a"].Value);
+
+        var handler = Regex.Match(
+            source,
+            @"private void OnTaskToggled\(.*?\n    \}",
+            RegexOptions.Singleline);
+
+        Assert.True(handler.Success, "找不到 OnTaskToggled。");
+        Assert.Contains("toggle.IsOn", handler.Value);
+        Assert.Contains("if (target == item.Task.Enabled)", handler.Value);
     }
 
     [Fact]
