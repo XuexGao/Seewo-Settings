@@ -10,7 +10,7 @@
         <local:OwnProcessConverter x:Key="OwnProcessConverter" />
     </local:ModulePageBase.Resources>
 
-    <ScrollViewer Padding="32,24,32,32">
+    <ScrollViewer Padding="32,24,32,48">
         <StackPanel MaxWidth="900" HorizontalAlignment="Left">
 
             <TextBlock Text="防截屏保护" Style="{StaticResource PageTitleStyle}" />

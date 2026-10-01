@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:SeewoAssistant.Pages">
 
-    <ScrollViewer Padding="32,24,32,32">
+    <ScrollViewer Padding="32,24,32,48">
         <StackPanel MaxWidth="980" HorizontalAlignment="Left">
 
             <TextBlock Text="定时任务" Style="{StaticResource PageTitleStyle}" />
@@ -143,6 +143,13 @@
                                  Text="0 8 * * *"
                                  FontFamily="Consolas, Cascadia Mono"
                                  TextChanged="OnCronChanged" />
+
+                        <!-- A worked example, because "分 时 日 月 周" in the header names
+                             the fields but not their meaning, and the quick-fill buttons
+                             below only cover the common cases. -->
+                        <TextBlock Style="{StaticResource CardBodyStyle}"
+                                   FontSize="12"
+                                   Text="格式：分(0-59) 时(0-23) 日(1-31) 月(1-12) 周(0-7，0 和 7 都是周日)。例：0 8 * * 1-5 = 工作日 08:00。" />
 
                         <InfoBar x:Name="CronInfoBar" IsOpen="False" IsClosable="False" />
 

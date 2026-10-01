@@ -351,6 +351,12 @@ public sealed partial class MainWindow : Window
         _statusSourcePage = null;
         StatusText.Text = string.Empty;
         StatusIcon.Glyph = "\uE946";
+
+        // The title bar carries the same message and was being left behind. The report
+        // saw「已切换到新建任务。填写名称、定时表达式和动作序列后保存。」still showing on the
+        // diagnostics and settings pages, describing something the user had done
+        // somewhere else entirely.
+        TitleBarStatus.Text = string.Empty;
     }
 
     private void ShowStatus(StatusMessage message)

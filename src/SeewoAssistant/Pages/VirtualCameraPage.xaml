@@ -6,7 +6,7 @@
     xmlns:local="using:SeewoAssistant.Pages"
     xmlns:controls="using:Microsoft.UI.Xaml.Controls">
 
-    <ScrollViewer Padding="32,24,32,32">
+    <ScrollViewer Padding="32,24,32,48">
         <StackPanel MaxWidth="900" HorizontalAlignment="Left">
 
             <TextBlock Text="虚拟摄像头" Style="{StaticResource PageTitleStyle}" />
