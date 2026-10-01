@@ -881,10 +881,9 @@ function Test-InDestructiveList {
         }
     }
     catch {
-        # A tree that cannot be walked is treated as safe-to-click only if it is not
-        # inside a known list, which is the conservative direction for a *click* but the
-        # dangerous one for a *write*. Failing closed is therefore the right choice: an
-        # unwalkable control is skipped.
+        # Failing closed. If the tree cannot be walked there is no way to know whether
+        # this control sits inside a destructive list, and the cost of guessing wrong is
+        # writing to the host machine - so it is skipped.
         return $true
     }
 
@@ -1326,6 +1325,14 @@ if (Test-Path $logPath) {
     }
     elseif ($logText -match 'Applied (Excluded|Blackout|None) to .+ \(PID ') {
         Write-Pass '跨进程防截屏确实应用到了目标进程。'
+    }
+    elseif ($logText -match '无法从 user32\.dll (读取|解析) SetWindowDisplayAffinity') {
+        # This is the signature of the PE export-table bug: the lookup fails on a machine
+        # whose build number satisfies the requirement. It was misreported as an OS
+        # version problem for a long time, so it is called out explicitly rather than
+        # being filed under "failed for a reason".
+        Write-Fail ('无法解析 SetWindowDisplayAffinity 的导出地址。'
+                    + '这通常意味着 PE 导出表解析又算错了偏移，而不是系统版本问题。')
     }
     elseif ($logText -match 'Applying capture protection failed') {
         # A failure is acceptable here; an unexplained one is not.
