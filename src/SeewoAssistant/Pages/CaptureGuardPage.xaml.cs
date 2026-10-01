@@ -450,6 +450,16 @@ public sealed partial class CaptureGuardPage : ModulePageBase
 
         var target = _selected;
 
+        // Everything the background work needs must be read here, on the UI thread.
+        //
+        // SelectedMode reads RadioButtons.SelectedIndex, and WinUI 3 enforces UI-thread
+        // affinity on XAML controls: touching one from a thread-pool thread throws
+        // RPC_E_WRONG_THREAD. Reading it inside the Task.Run below made cross-process
+        // protection fail 100% of the time, which is why the feature appeared to be
+        // broken regardless of elevation. The value is a plain enum, so capturing it
+        // before the switch to the pool is both necessary and sufficient.
+        var mode = SelectedMode;
+
         ProtectSelectedButton.IsEnabled = false;
         UnprotectSelectedButton.IsEnabled = false;
         Report($"正在{(protect ? "保护" : "取消保护")}「{target.ProcessName}」…");
@@ -457,9 +467,9 @@ public sealed partial class CaptureGuardPage : ModulePageBase
         try
         {
             // Protect/Unprotect block while injecting and waiting for the payload, so
-            // they belong off the UI thread.
+            // they belong off the UI thread. Only plain data crosses the boundary.
             var result = await Task.Run(() => protect
-                ? Services.CaptureGuard.Protect(target, SelectedMode, allowCrossProcess)
+                ? Services.CaptureGuard.Protect(target, mode, allowCrossProcess)
                 : Services.CaptureGuard.Unprotect(target, allowCrossProcess));
 
             ShowResult(result);

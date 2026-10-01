@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Installs or removes the native components of SeewoAssistant.
 
@@ -314,7 +314,15 @@ function Uninstall-Native {
 
 # ---------------------------------------------------------------------- entry
 
-if (-not $IsWindows -and $PSVersionTable.PSVersion.Major -ge 6) {
+# $IsWindows only exists in PowerShell 6 and later, and this script enables
+# Set-StrictMode -Version Latest, under which reading an undefined variable throws
+# VariableIsUndefined. The version test must therefore come first: with `-and` the left
+# operand is evaluated before the right, so the original order threw on Windows
+# PowerShell 5.1 - the default shell on a stock Chinese Windows 10 - before the version
+# check could protect it. The script then failed to run at all.
+$isPowerShellCore = $PSVersionTable.PSVersion.Major -ge 6
+
+if ($isPowerShellCore -and -not $IsWindows) {
     Write-Fail '此脚本只能在 Windows 上运行。'
     exit 1
 }

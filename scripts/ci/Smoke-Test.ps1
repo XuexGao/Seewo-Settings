@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Launches SeewoAssistant on a build agent, walks every page, and screenshots each
     one.

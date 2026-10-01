@@ -59,34 +59,96 @@ public abstract class ModulePageBase : Page
         }
     }
 
+    /// <summary>
+    /// Serialises dialogs on this page.
+    /// </summary>
+    /// <remarks>
+    /// WinUI allows only one <see cref="ContentDialog"/> open at a time, and calling
+    /// <c>ShowAsync</c> while another is open throws
+    /// <c>COMException: Only a single ContentDialog can be open at any time</c>. That
+    /// exception used to escape the page and surface as an unhandled exception on the UI
+    /// thread - reachable by clicking two confirmation buttons in quick succession, or by
+    /// clicking one while a dialog was still open.
+    ///
+    /// The semaphore makes a second caller wait its turn instead of throwing, and the
+    /// wait is bounded so a stuck dialog cannot block a page forever.
+    /// </remarks>
+    private readonly SemaphoreSlim _dialogGate = new(1, 1);
+
     /// <summary>Shows a confirmation dialog and returns whether the user accepted.</summary>
+    /// <remarks>
+    /// Returns false when another dialog is already showing rather than throwing: the
+    /// caller asked a yes/no question, and "no" is the safe answer when the question
+    /// could not be put to the user.
+    /// </remarks>
     protected async Task<bool> ConfirmAsync(string title, string message, string acceptText = "继续", string cancelText = "取消")
     {
-        var dialog = new ContentDialog
+        if (!await _dialogGate.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(true))
         {
-            Title = title,
-            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
-            PrimaryButtonText = acceptText,
-            CloseButtonText = cancelText,
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = XamlRoot,
-        };
+            // Another dialog has been open for 30 seconds; do not stack a second one.
+            return false;
+        }
 
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+                PrimaryButtonText = acceptText,
+                CloseButtonText = cancelText,
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = XamlRoot,
+            };
+
+            return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        }
+        catch (Exception ex)
+        {
+            // A dialog can still fail for reasons outside our control (the page being
+            // torn down mid-show, for instance). Reporting "not confirmed" is correct and
+            // keeps the failure out of the unhandled-exception path.
+            System.Diagnostics.Debug.WriteLine($"ConfirmAsync failed: {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            _dialogGate.Release();
+        }
     }
 
     /// <summary>Shows an informational dialog.</summary>
+    /// <remarks>
+    /// Shares the gate with <see cref="ConfirmAsync"/> so the two can never be open at
+    /// the same time.
+    /// </remarks>
     protected async Task ShowDialogAsync(string title, string message)
     {
-        var dialog = new ContentDialog
+        if (!await _dialogGate.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(true))
         {
-            Title = title,
-            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
-            CloseButtonText = "关闭",
-            XamlRoot = XamlRoot,
-        };
+            return;
+        }
 
-        await dialog.ShowAsync();
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+                CloseButtonText = "关闭",
+                XamlRoot = XamlRoot,
+            };
+
+            await dialog.ShowAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"ShowDialogAsync failed: {ex.Message}");
+        }
+        finally
+        {
+            _dialogGate.Release();
+        }
     }
 
     /// <summary>Sets the text of a status badge and colours it by state.</summary>

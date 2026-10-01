@@ -307,10 +307,13 @@ public sealed class SeewoControlService
                     // The product must look like Seewo by display name, publisher, or
                     // the paths it recorded. Checking the publisher matters because
                     // some Seewo components carry a generic display name.
+                    // The publisher is the strongest signal, so it is checked first;
+                    // a path match alone is weak and is what produced false positives.
                     var looksSeewo =
-                        MentionsSeewo(displayName) || MentionsSeewo(publisher) ||
-                        MentionsSeewo(installLocation) || MentionsSeewo(displayIcon) ||
-                        MentionsSeewo(uninstallString);
+                        MentionsSeewo(publisher) || MentionsSeewo(displayName) ||
+                        PathHasSeewoSegment(installLocation) ||
+                        PathHasSeewoSegment(ExtractExecutablePath(displayIcon) ?? string.Empty) ||
+                        PathHasSeewoSegment(ExtractExecutablePath(uninstallString) ?? string.Empty);
 
                     if (!looksSeewo)
                     {
@@ -554,6 +557,17 @@ public sealed class SeewoControlService
     }
 
     /// <summary>True when a string mentions any Seewo keyword.</summary>
+    /// <summary>
+    /// True when a registry value mentions Seewo.
+    /// </summary>
+    /// <remarks>
+    /// A registry value may be a product name, a publisher, or a path, and each needs a
+    /// different test. Paths in particular must not be matched by raw substring search:
+    /// the user profile of a Seewo classroom machine is often literally
+    /// <c>C:\Users\seewo</c>, so every per-user application installed there matched and
+    /// was reported as a Seewo component - the scan produced 139 rules including
+    /// unrelated tools such as WorkBuddy.
+    /// </remarks>
     private static bool MentionsSeewo(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -561,7 +575,88 @@ public sealed class SeewoControlService
             return false;
         }
 
-        return SeewoKeywords.Any(k => text.Contains(k, StringComparison.OrdinalIgnoreCase));
+        // A path is matched on its segments; anything else on the whole string.
+        return LooksLikePath(text)
+            ? PathHasSeewoSegment(text)
+            : SeewoKeywords.Any(k => text.Contains(k, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>True when a string looks like a file system path rather than a name.</summary>
+    private static bool LooksLikePath(string text) =>
+        text.Contains('\\') ||
+        text.Contains('/') ||
+        text.Contains(":", StringComparison.Ordinal);
+
+    /// <summary>
+    /// True when any directory segment of a path is a Seewo vendor folder.
+    /// </summary>
+    /// <remarks>
+    /// Only whole segments count, so <c>\Seewo\</c> matches but
+    /// <c>C:\Users\seewo\AppData\...</c> does not: the <c>seewo</c> there is the
+    /// account name, not a vendor folder. The final component (the file name) is checked
+    /// too, because an installer often records <c>DisplayIcon</c> as a bare executable
+    /// path.
+    /// </remarks>
+    private static bool PathHasSeewoSegment(string path)
+    {
+        string[] segments;
+
+        try
+        {
+            segments = path.Split(
+                ['\\', '/'],
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        // The account name under Users\ is skipped entirely. On a Seewo classroom machine
+        // the profile is routinely C:\Users\seewo, and checking only the container
+        // segments is not enough: the offending segment IS the user name, so it has to be
+        // excluded by position rather than by name.
+        var skipNext = false;
+
+        foreach (var segment in segments)
+        {
+            // A drive letter such as "C:" is not a name and must never be treated as one.
+            if (segment.Length <= 1 || segment.EndsWith(':'))
+            {
+                continue;
+            }
+
+            if (skipNext)
+            {
+                // This is the account name; never a vendor folder.
+                skipNext = false;
+                continue;
+            }
+
+            if (segment.Equals("Users", StringComparison.OrdinalIgnoreCase))
+            {
+                skipNext = true;
+                continue;
+            }
+
+            // AppData and the standard shell folders carry no vendor meaning.
+            if (segment.Equals("AppData", StringComparison.OrdinalIgnoreCase) ||
+                segment.Equals("Local", StringComparison.OrdinalIgnoreCase) ||
+                segment.Equals("Roaming", StringComparison.OrdinalIgnoreCase) ||
+                segment.Equals("Programs", StringComparison.OrdinalIgnoreCase) ||
+                segment.Equals("Documents", StringComparison.OrdinalIgnoreCase) ||
+                segment.Equals("Desktop", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (SeewoKeywords.Any(k => segment.Contains(k, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>True when a path or its file description mentions Seewo.</summary>
@@ -574,8 +669,11 @@ public sealed class SeewoControlService
             return true;
         }
 
+        // The directory is checked per segment, not as one string, so a user profile
+        // named "seewo" does not make every application under it look like Seewo
+        // software.
         var directory = Path.GetDirectoryName(executablePath) ?? string.Empty;
-        if (SeewoKeywords.Any(k => directory.Contains(k, StringComparison.OrdinalIgnoreCase)))
+        if (PathHasSeewoSegment(directory))
         {
             return true;
         }

@@ -33,8 +33,26 @@ public sealed class PrivacyUsageEvent
     /// <summary>True when the app came from the Store rather than a plain executable.</summary>
     public bool IsPackaged { get; init; }
 
-    /// <summary>UTC time the transition was observed.</summary>
+    /// <summary>
+    /// Time the transition was observed, in UTC.
+    /// </summary>
+    /// <remarks>
+    /// Stored in UTC because the underlying consent-store timestamps are UTC and mixing
+    /// kinds is how the display came to be eight hours off. Everything shown to the user
+    /// goes through <see cref="ObservedAtLocal"/>.
+    /// </remarks>
     public DateTimeOffset ObservedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// <see cref="ObservedAt"/> converted to the machine's local time zone.
+    /// </summary>
+    /// <remarks>
+    /// The log line and the UI both previously formatted <see cref="ObservedAt"/>
+    /// directly, so a user at UTC+8 saw "at 12:34:59" next to a local log timestamp of
+    /// 20:35:00 - the recorded time appeared eight hours earlier than it happened, which
+    /// undermines the whole point of a privacy audit trail.
+    /// </remarks>
+    public DateTimeOffset ObservedAtLocal => ObservedAt.ToLocalTime();
 
     /// <summary>Raw <c>LastUsedTimeStart</c>, when known.</summary>
     public long LastUsedTimeStart { get; init; }
@@ -55,5 +73,5 @@ public sealed class PrivacyUsageEvent
         : "未知程序";
 
     public override string ToString() =>
-        $"{DeviceName} {Change} by {BestName} at {ObservedAt:HH:mm:ss}";
+        $"{DeviceName} {Change} by {BestName} at {ObservedAtLocal:HH:mm:ss}";
 }
