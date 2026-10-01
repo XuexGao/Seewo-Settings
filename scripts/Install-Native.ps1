@@ -141,7 +141,25 @@ function Show-Status {
 
         if (Test-Path $key) {
             $dll = (Get-ItemProperty $key).'(default)'
-            Write-Ok "$($entry.Name) 已注册 -> $dll"
+
+            # Flag a registration that points outside this installation. Installing a new
+            # copy into a different folder leaves the old CLSID pointing at the previous
+            # one, and nothing complained: the status output showed the stale path as if
+            # it were fine, so the only way to notice was to read the path closely. On
+            # Windows 10 the Media Foundation backend is inert, which is why the leftover
+            # did no harm - but the same leftover on Windows 11 would silently load the
+            # old DLL, and deleting the old folder would break the camera.
+            $isCurrent = -not [string]::IsNullOrWhiteSpace($dll) -and
+                         $dll.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase)
+
+            if ($isCurrent) {
+                Write-Ok "$($entry.Name) 已注册 -> $dll"
+            }
+            else {
+                Write-Warn "$($entry.Name) 指向的不是当前安装目录：$dll"
+                Write-Info "       当前安装目录：$Root"
+                Write-Info '       重新运行本脚本的 Install 会把注册更新为当前目录。'
+            }
         }
         else {
             Write-Info "$($entry.Name) 未注册"
