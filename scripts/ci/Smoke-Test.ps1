@@ -1165,6 +1165,84 @@ if (Test-Path $logPath) {
     Write-Host ''
     Write-Host '   日志末尾 20 行：'
     $logLines | Select-Object -Last 20 | ForEach-Object { Write-Host "     $_" }
+
+    # ------------------------------------------------------------------ functional
+    #
+    # Assertions on what the run actually accomplished, not merely that nothing threw.
+    # Every defect below shipped past a sweep that only checked "the process is still
+    # alive": the operation failed, the failure was logged or swallowed, and the check
+    # reported success because the app had not crashed.
+    Write-Step '功能断言'
+
+    $logText = $logLines -join "`n"
+
+    # Cross-process protection. Reading a XAML control off the UI thread threw
+    # RPC_E_WRONG_THREAD here, which made the feature fail every single time. The sweep
+    # clicks 保护选中窗口 without admin rights, so the call is expected to fail for a
+    # permission reason - but it must not fail with a threading error, and it must not
+    # fail silently.
+    if ($logText -match 'RPC_E_WRONG_THREAD|应用程序调用一个已为另一线程整理的接口') {
+        Write-Fail '跨进程防截屏在后台线程访问了 UI 控件（RPC_E_WRONG_THREAD）。'
+    }
+    elseif ($logText -match 'Applied (Excluded|Blackout|None) to .+ \(PID ') {
+        Write-Pass '跨进程防截屏确实应用到了目标进程。'
+    }
+    elseif ($logText -match 'Applying capture protection failed') {
+        # A failure is acceptable here; an unexplained one is not.
+        Write-Pass '跨进程防截屏失败，但有明确记录（未提权环境下属预期）。'
+    }
+
+    # Window hiding. The count must be non-zero: an earlier version hid one window out of
+    # everything on the desktop because its filter was far too strict.
+    if ($logText -match 'Hid (\d+) window\(s\)\.') {
+        $hidCount = [int]$Matches[1]
+
+        if ($hidCount -le 0) {
+            Write-Fail '「隐藏所有窗口」报告隐藏了 0 个窗口，过滤条件可能过于严格。'
+        }
+        else {
+            Write-Pass "「隐藏所有窗口」隐藏了 $hidCount 个窗口。"
+        }
+    }
+
+    # Restoring must report a non-zero count too. ShowWindow returns whether the window
+    # was previously visible, so treating that as success made the count permanently 0
+    # while the desktop stayed hidden.
+    if ($logText -match 'Restored (\d+) window\(s\)\.') {
+        $restoredCount = [int]$Matches[1]
+
+        if ($restoredCount -le 0 -and $logText -match 'Hid ([1-9]\d*) window') {
+            Write-Fail '隐藏了窗口但恢复数为 0，恢复逻辑可能没有真正生效。'
+        }
+        else {
+            Write-Pass "「恢复所有窗口」恢复了 $restoredCount 个窗口。"
+        }
+    }
+
+    # The toast had a fourth text element added, which made the whole notification fail.
+    if ($logText -match 'Maximum number of text elements') {
+        Write-Fail '系统通知因文本元素超限而发送失败。'
+    }
+    elseif ($logText -match 'Toast shown for ') {
+        Write-Pass '系统通知已成功发出。'
+    }
+
+    # The privacy record must show local time. A UTC timestamp rendered beside a local
+    # log prefix is off by the time zone offset.
+    if ($logText -match 'at \d{2}:\d{2}:\d{2}') {
+        Write-Pass '隐私记录带有时间戳。'
+    }
+
+    # A window is reported without a name when the sweep finds one; the count is useful
+    # as a quality signal even though it is not fatal.
+    $unnamedCount = ([regex]::Matches($logText, '未命名控件：')).Count
+
+    if ($unnamedCount -gt 0) {
+        Write-Warn "发现 $unnamedCount 个未命名控件（见上方明细）。"
+    }
+    else {
+        Write-Pass '所有控件都带有可访问名称。'
+    }
 }
 else {
     Write-Warn "没有找到日志文件（$logPath）。应用可能启动得不够久，或者写入失败。"

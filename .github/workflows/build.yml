@@ -128,6 +128,60 @@ jobs:
       #     content but the XAML compiler rejects
       #   * a Button with no automation name, which is unreachable for assistive
       #     technology and cannot be clicked by the UI test
+      # Windows PowerShell 5.1 - the default shell on a stock Chinese Windows 10 - reads
+      # a BOM-less .ps1 using the system ANSI code page, which is GBK there. GBK is a
+      # double-byte encoding, so a Chinese character whose trailing byte is 0x9C swallows
+      # the following closing quote and the script fails to parse. The shipped install
+      # script was therefore unusable on exactly the machines this app targets, and CI
+      # never noticed because it runs PowerShell 7, which defaults to UTF-8.
+      #
+      # This checks both the encoding and, using the Windows PowerShell parser, that the
+      # script actually parses under 5.1.
+      - name: Validate the PowerShell scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $problems = @()
+          $scripts = Get-ChildItem -Path 'scripts' -Recurse -Filter '*.ps1' -File
+
+          foreach ($script in $scripts) {
+            $bytes = [System.IO.File]::ReadAllBytes($script.FullName)
+
+            # A UTF-8 BOM is what makes Windows PowerShell 5.1 decode the file correctly.
+            $hasBom = $bytes.Length -ge 3 -and
+                      $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+
+            if (-not $hasBom) {
+              $problems += "$($script.Name): 缺少 UTF-8 BOM，Windows PowerShell 5.1 会按 GBK 解码而解析失败"
+            }
+
+            # Parse with the Windows PowerShell 5.1 parser specifically, if present.
+            $legacy = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+
+            if (Test-Path $legacy) {
+              $quoted = $script.FullName.Replace("'", "''")
+              $command = "`$e = `$null; " +
+                         "[System.Management.Automation.Language.Parser]::ParseFile('$quoted', [ref]`$null, [ref]`$e) | Out-Null; " +
+                         "if (`$e.Count -gt 0) { `$e | ForEach-Object { `$_.Message }; exit 1 }"
+
+              $output = & $legacy -NoProfile -NonInteractive -Command $command 2>&1
+              $exit = $LASTEXITCODE
+
+              if ($exit -ne 0) {
+                $problems += "$($script.Name): 在 Windows PowerShell 5.1 下解析失败 -> $($output -join '; ')"
+              }
+            }
+          }
+
+          if ($problems.Count -gt 0) {
+            Write-Host ''
+            foreach ($p in $problems) { Write-Host "  $p" -ForegroundColor Red }
+            Write-Error "PowerShell 脚本校验失败：$($problems.Count) 处问题"
+            exit 1
+          }
+
+          Write-Host "已检查 $($scripts.Count) 个 PowerShell 脚本（含 UTF-8 BOM 与 5.1 解析）。" -ForegroundColor Green
+
       - name: Validate the XAML files
         shell: pwsh
         run: |
