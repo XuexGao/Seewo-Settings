@@ -151,7 +151,8 @@
                     <ListView x:Name="WindowList"
                               MaxHeight="320"
                               SelectionMode="Single"
-                              SelectionChanged="OnWindowSelectionChanged">
+                              SelectionChanged="OnWindowSelectionChanged"
+                              ItemContainerStyle="{StaticResource AccessibleListViewItemStyle}">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid ColumnSpacing="12" Padding="0,6">

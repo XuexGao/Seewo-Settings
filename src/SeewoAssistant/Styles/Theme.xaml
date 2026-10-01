@@ -63,20 +63,26 @@
     </Style>
 
     <!--
-        Every list row exposes its own content as the accessible name.
+        Gives every list row an accessible name.
 
-        A ListViewItem has no automation name of its own, so a screen reader announces
-        the row as an unlabelled list item and UI Automation cannot address it by name.
-        The test report counted forty such controls across the app, which is also why
-        the automated sweep could never click a specific row.
+        A ListViewItem has no automation name of its own, so a screen reader announces the
+        row as an unlabelled list item and UI Automation cannot address it by name - which
+        is also why the automated sweep could not select a specific row. The test report
+        saw rows exposing only their type name ("SeewoPage+ProcessItem").
 
-        AutomationProperties.Name is set from the item's ToString(), which each view model
-        overrides to return the identifying text the user sees. A view model that does not
-        override it simply contributes no name, which is the previous behaviour rather
-        than a regression.
+        Why a keyed style plus ItemContainerStyle rather than an implicit Style:
+        XamlControlsResources already defines an implicit ListViewItem style, and an
+        implicit style merged later does not reliably replace it at container-generation
+        time. Setting the style explicitly on each ListView's ItemContainerStyle targets
+        the generated container directly and always wins.
+
+        The name comes from the item's ToString(), which every row view model overrides to
+        return the text the user sees. Binding to the item itself (rather than to a member)
+        is what makes this work for all lists with one style.
     -->
-    <Style TargetType="ListViewItem">
+    <Style x:Key="AccessibleListViewItemStyle" TargetType="ListViewItem">
         <Setter Property="AutomationProperties.Name" Value="{Binding}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
 
 </ResourceDictionary>

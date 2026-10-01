@@ -103,7 +103,8 @@
                         <Button x:Name="AddExclusionButton" Click="OnAddExclusion" Content="添加" />
                     </StackPanel>
 
-                    <ListView x:Name="ExclusionList" MaxHeight="200" SelectionMode="None">
+                    <ListView x:Name="ExclusionList" MaxHeight="200" SelectionMode="None"
+                    ItemContainerStyle="{StaticResource AccessibleListViewItemStyle}">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid Padding="4,4" ColumnSpacing="12">

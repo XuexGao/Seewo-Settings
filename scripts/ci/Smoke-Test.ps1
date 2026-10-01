@@ -833,6 +833,64 @@ function Assert-UnsafeListIsSane {
 
 Assert-UnsafeListIsSane
 
+    # ------------------------------------------------------------------ containers
+    #
+    # Some lists contain controls that change the host machine the moment they are
+    # toggled, with no confirmation: the Seewo startup-entry list writes HKLM Run keys,
+    # service start types and scheduled tasks directly. Clicking every row in that list
+    # really did disable EasiUpdate, SeewoFileTransferService and several Run entries on
+    # a classroom machine during testing, and the script did not restore them.
+    #
+    # A name list cannot work here: each row's control is named after the entry it
+    # represents, so the names are whatever happens to be installed - "rheaservice",
+    # "EasiUpdate", "SeewoPause" and so on. The exclusion is therefore structural: the
+    # whole subtree is skipped.
+    #
+    # This is checked by walking up from each candidate to see whether it sits inside one
+    # of these lists.
+    $destructiveListNames = @('StartupList')
+
+# Returns true when a control sits inside one of the named lists.
+#
+# Walks up the automation tree looking for an ancestor whose AutomationId is one of
+# $ListNames. Matching on the container rather than on the control means a row added by a
+# future version is excluded automatically, which a name list could never guarantee.
+function Test-InDestructiveList {
+    param(
+        [System.Windows.Automation.AutomationElement]$Control,
+        [string[]]$ListNames
+    )
+
+    if ($null -eq $Control -or $null -eq $ListNames -or $ListNames.Count -eq 0) {
+        return $false
+    }
+
+    try {
+        $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+        $current = $walker.GetParent($Control)
+
+        # Bounded so a malformed tree cannot loop forever.
+        for ($depth = 0; $depth -lt 20 -and $null -ne $current; $depth++) {
+            $id = $current.Current.AutomationId
+
+            if (-not [string]::IsNullOrWhiteSpace($id) -and $ListNames -contains $id) {
+                return $true
+            }
+
+            $current = $walker.GetParent($current)
+        }
+    }
+    catch {
+        # A tree that cannot be walked is treated as safe-to-click only if it is not
+        # inside a known list, which is the conservative direction for a *click* but the
+        # dangerous one for a *write*. Failing closed is therefore the right choice: an
+        # unwalkable control is skipped.
+        return $true
+    }
+
+    return $false
+}
+
 function Get-SafeButtons {
     param(
         [System.Windows.Automation.AutomationElement]$Window,
@@ -877,6 +935,14 @@ function Get-SafeButtons {
         if (-not $button.Current.IsEnabled) {
             continue
         }
+
+        if (Test-InDestructiveList -Control $button -ListNames $destructiveListNames) {
+            # Silently skipped on purpose: the caller reports what it clicked, and listing
+            # every skipped row would bury the signal. The count is summarised instead.
+            $script:DestructiveSkipped++
+            continue
+        }
+
 
         # Bring the element into view before judging whether it is offscreen. The
         # window is small on the CI desktop, so most page content starts below the fold
@@ -953,6 +1019,7 @@ $interactionPlan = @(
 )
 
 $clickedTotal = 0
+$script:DestructiveSkipped = 0
 
 foreach ($entry in $interactionPlan) {
     if ($process.HasExited) {
@@ -1139,6 +1206,13 @@ foreach ($entry in $interactionPlan) {
 }
 
 Write-Pass "共点击 $clickedTotal 个按钮。"
+
+# Reported explicitly so a future change that starts skipping whole sections of the UI
+# cannot pass unnoticed - the same failure mode as the unnamed-control count.
+if ($script:DestructiveSkipped -gt 0) {
+    Write-Host "   因位于会立即改写宿主机配置的列表中而跳过 $($script:DestructiveSkipped) 个控件。" -ForegroundColor Yellow
+    Write-Host '   （希沃「开机自启项」列表的开关一旦切换就会直接修改注册表/服务/计划任务。）'
+}
 
 # Let any pending work settle before judging the process, since a crash from an
 # asynchronous handler would otherwise be missed.

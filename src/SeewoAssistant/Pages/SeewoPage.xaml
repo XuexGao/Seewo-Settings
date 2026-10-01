@@ -71,7 +71,8 @@
                     <ListView x:Name="DiscoveredList"
                               MaxHeight="280"
                               SelectionMode="None"
-                              Visibility="Collapsed">
+                              Visibility="Collapsed"
+                              ItemContainerStyle="{StaticResource AccessibleListViewItemStyle}">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid Padding="4,6" ColumnSpacing="12">
@@ -117,7 +118,8 @@
                     <TextBlock Style="{StaticResource CardBodyStyle}"
                                Text="规则决定「哪些程序算希沃软件」。可以按进程名、完整路径前缀或数字签名匹配。" />
 
-                    <ListView x:Name="RulesList" MaxHeight="240" SelectionMode="None">
+                    <ListView x:Name="RulesList" MaxHeight="240" SelectionMode="None"
+                    ItemContainerStyle="{StaticResource AccessibleListViewItemStyle}">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid Padding="4,6" ColumnSpacing="12">
@@ -248,7 +250,8 @@
                     <ListView x:Name="ProcessList"
                               MaxHeight="300"
                               SelectionMode="Extended"
-                              SelectionChanged="OnProcessSelectionChanged">
+                              SelectionChanged="OnProcessSelectionChanged"
+                              ItemContainerStyle="{StaticResource AccessibleListViewItemStyle}">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid Padding="4,6" ColumnSpacing="12">
@@ -352,7 +355,8 @@
 
                     <ProgressRing x:Name="StartupProgress" IsActive="False" Width="20" Height="20" HorizontalAlignment="Left" />
 
-                    <ListView x:Name="StartupList" MaxHeight="320" SelectionMode="None">
+                    <ListView x:Name="StartupList" MaxHeight="320" SelectionMode="None"
+                    ItemContainerStyle="{StaticResource AccessibleListViewItemStyle}">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid Padding="4,6" ColumnSpacing="12">

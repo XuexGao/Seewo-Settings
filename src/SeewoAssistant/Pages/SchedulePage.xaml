@@ -34,7 +34,8 @@
                         <Button x:Name="RefreshTasksButton" Click="OnRefreshTasks" Content="刷新" />
                     </StackPanel>
 
-                    <ListView x:Name="TaskList" MaxHeight="340" SelectionMode="None">
+                    <ListView x:Name="TaskList" MaxHeight="340" SelectionMode="None"
+                    ItemContainerStyle="{StaticResource AccessibleListViewItemStyle}">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid Padding="4,8" ColumnSpacing="12">

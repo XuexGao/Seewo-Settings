@@ -179,9 +179,20 @@ public sealed class ShellcodeAffinitySetter
 
             if (rva == 0)
             {
+                // Two very different causes, previously conflated into one message that
+                // blamed the OS. The build check is separate so a parse failure is not
+                // reported as "your Windows is too old" - which is what sent the last
+                // investigation in the wrong direction while the real cause was an
+                // off-by-four in the export-table parser.
+                var tooOld = !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041);
+
                 return ActionResult.Fail(
-                    "无法从 user32.dll 读取 SetWindowDisplayAffinity 的导出地址。" +
-                    "该 API 需要 Windows 10 版本 2004（内部版本 19041）或更高。");
+                    tooOld
+                        ? "SetWindowDisplayAffinity 需要 Windows 10 版本 2004（内部版本 19041）或更高，" +
+                          "当前系统版本低于该要求，无法使用跨进程防截屏。"
+                        : "无法从 user32.dll 解析 SetWindowDisplayAffinity 的导出地址。" +
+                          "系统版本满足要求，因此这是导出表解析失败而非系统不支持，" +
+                          "请附上日志反馈以便定位。");
             }
 
             var apiAddress = user32Base + rva;

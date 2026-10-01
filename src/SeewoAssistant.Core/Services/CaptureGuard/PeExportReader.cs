@@ -111,14 +111,42 @@ internal static class PeExportReader
             }
 
             stream.Position = exportOffset;
-            stream.Position += 24; // Characteristics, TimeDateStamp, Major/Minor, Name, Base
+
+            // IMAGE_EXPORT_DIRECTORY begins with six fields that are not needed here.
+            // They are consumed individually, with their real sizes written next to them,
+            // instead of by one summed constant.
+            //
+            // A summed constant is exactly what broke this parser. The prefix is 20 bytes
+            // - Characteristics 4, TimeDateStamp 4, MajorVersion 2, MinorVersion 2, Name
+            // 4, Base 4 - but the code skipped 24, so every field from NumberOfFunctions
+            // onwards was read four bytes late. numberOfNames then picked up
+            // AddressOfFunctions, an RVA in the hundreds of thousands, and the
+            // plausibility guard rejected it. GetExportRva returned 0 for every module,
+            // which made cross-process capture protection impossible and reported the
+            // cause to the user as an OS version problem.
+            stream.Position += 4;      // Characteristics
+            stream.Position += 4;      // TimeDateStamp
+            stream.Position += 2 + 2;  // MajorVersion, MinorVersion
+            stream.Position += 4;      // Name (RVA of the module name)
+            stream.Position += 4;      // Base (ordinal bias)
+                                       // = 20 bytes; NumberOfFunctions follows
+
             var numberOfFunctions = reader.ReadUInt32();
             var numberOfNames = reader.ReadUInt32();
             var addressOfFunctions = reader.ReadUInt32();
             var addressOfNames = reader.ReadUInt32();
             var addressOfNameOrdinals = reader.ReadUInt32();
 
-            if (numberOfNames == 0 || numberOfNames > 65536 || numberOfFunctions > 65536)
+            // Sanity bounds. A real module has at most a few thousand exports, so a
+            // larger value means the directory was misread rather than that the module
+            // genuinely has that many. This guard is what silently absorbed the offset
+            // bug above, so it is kept - but the failure it hides must be visible, which
+            // is why the caller now distinguishes "not found" from "unparseable".
+            const uint MaxReasonableExports = 65536;
+
+            if (numberOfNames == 0 ||
+                numberOfNames > MaxReasonableExports ||
+                numberOfFunctions > MaxReasonableExports)
             {
                 return 0;
             }

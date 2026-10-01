@@ -181,7 +181,8 @@
 
                     <ListView x:Name="ExclusionList"
                               MaxHeight="240"
-                              SelectionMode="None">
+                              SelectionMode="None"
+                              ItemContainerStyle="{StaticResource AccessibleListViewItemStyle}">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid ColumnSpacing="8" Padding="0,4">
@@ -234,7 +235,8 @@
 
                     <ListView x:Name="ActivityList"
                               MaxHeight="420"
-                              SelectionMode="None">
+                              SelectionMode="None"
+                              ItemContainerStyle="{StaticResource AccessibleListViewItemStyle}">
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="local:PrivacyActivityRow">
                                 <Grid ColumnSpacing="12" Padding="0,6">
