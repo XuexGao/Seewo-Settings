@@ -20,8 +20,6 @@ public sealed partial class SeewoPage : ModulePageBase
     private readonly ObservableCollection<ProcessItem> _processes = [];
     private readonly ObservableCollection<StartupItem> _startupEntries = [];
 
-    private bool _suppressRuleToggle;
-    private bool _suppressStartupToggle;
 
     public SeewoPage()
     {
@@ -181,7 +179,6 @@ public sealed partial class SeewoPage : ModulePageBase
 
     private void ReloadRules()
     {
-        _suppressRuleToggle = true;
         _rules.Clear();
 
         foreach (var rule in Services.Settings.SeewoRules)
@@ -189,21 +186,32 @@ public sealed partial class SeewoPage : ModulePageBase
             _rules.Add(new RuleItem(rule));
         }
 
-        _suppressRuleToggle = false;
-
         NoRulesText.Visibility = _rules.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnRuleToggled(object sender, RoutedEventArgs e)
     {
-        if (_suppressRuleToggle || sender is not ToggleSwitch { DataContext: RuleItem item })
+        if (sender is not ToggleSwitch { DataContext: RuleItem item } toggle)
         {
             return;
         }
 
-        item.Rule.Enabled = item.Enabled;
+        // Same hazard as the startup list, and the same defence: read the switch itself,
+        // and ignore an event that agrees with what the rule already says. A refresh that
+        // re-presents an unchanged rule raises Toggled without the user having done
+        // anything.
+        var target = toggle.IsOn;
+
+        if (target == item.Rule.Enabled)
+        {
+            item.Enabled = target;
+            return;
+        }
+
+        item.Enabled = target;
+        item.Rule.Enabled = target;
         Services.SaveSettings();
-        Report($"规则「{item.Rule.Name}」已{(item.Enabled ? "启用" : "停用")}。");
+        Report($"规则「{item.Rule.Name}」已{(target ? "启用" : "停用")}。");
     }
 
     private void OnDeleteRule(object sender, RoutedEventArgs e)
@@ -631,15 +639,12 @@ public sealed partial class SeewoPage : ModulePageBase
         {
             var entries = await Task.Run(() => Services.StartupManager.FindSeewoStartupEntries());
 
-            _suppressStartupToggle = true;
             _startupEntries.Clear();
 
             foreach (var entry in entries)
             {
                 _startupEntries.Add(new StartupItem(entry));
             }
-
-            _suppressStartupToggle = false;
 
             NoStartupText.Visibility = _startupEntries.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             NoStartupText.Text = _startupEntries.Count == 0
@@ -662,12 +667,32 @@ public sealed partial class SeewoPage : ModulePageBase
 
     private async void OnStartupToggled(object sender, RoutedEventArgs e)
     {
-        if (_suppressStartupToggle || sender is not ToggleSwitch { DataContext: StartupItem item })
+        if (sender is not ToggleSwitch { DataContext: StartupItem item } toggle)
         {
             return;
         }
 
-        var target = item.Enabled;
+        // The switch's own value is read rather than the bound property, because that
+        // value is already correct whenever this event fires - whereas whether the binding
+        // has written back to the item by now depends on framework internals. Reading it
+        // here makes the decision below independent of that ordering.
+        var target = toggle.IsOn;
+
+        // The event that caused the reported damage is the one raised while the row
+        // container is being created: the binding sets IsOn from the entry, which raises
+        // Toggled, and the handler then applied that "change" back to the entry. That is
+        // why merely pressing 扫描开机自启项 silently re-enabled every disabled startup
+        // entry on the machine.
+        //
+        // The stored entry is only ever changed by the apply step below, so a toggle that
+        // matches it is the binding catching up rather than a user action.
+        if (target == item.Entry.Enabled)
+        {
+            item.Enabled = target;
+            return;
+        }
+
+        item.Enabled = target;
 
         await RunGuardedAsync(
             $"{(target ? "启用" : "禁用")}启动项「{item.Entry.Name}」",
@@ -684,9 +709,10 @@ public sealed partial class SeewoPage : ModulePageBase
                     // The operation failed, so the toggle must be put back to the
                     // real state rather than left showing an intention that did not
                     // take effect.
-                    _suppressStartupToggle = true;
+                    // Put the switch back to the real state. The entry was never
+                    // changed, so the resulting Toggled event matches it and is ignored.
+                    toggle.IsOn = item.Entry.Enabled;
                     item.Enabled = item.Entry.Enabled;
-                    _suppressStartupToggle = false;
 
                     Report(result.Message, StatusSeverity.Error);
                 }
@@ -819,6 +845,7 @@ public sealed partial class SeewoPage : ModulePageBase
         internal RuleItem(ProcessRule rule)
         {
             Rule = rule;
+            Enabled = rule.Enabled;
         }
 
         internal ProcessRule Rule { get; }
@@ -829,11 +856,17 @@ public sealed partial class SeewoPage : ModulePageBase
 
         public string Notes => Rule.Notes;
 
-        public bool Enabled
-        {
-            get => Rule.Enabled;
-            set => Rule.Enabled = value;
-        }
+        /// <summary>
+        /// The state shown in the list, which is written back to the rule only once the
+        /// change has been accepted.
+        /// </summary>
+        /// <remarks>
+        /// Not a pass-through to <see cref="ProcessRule.Enabled"/>: the two-way binding
+        /// writes this while the row container is being created, and if that write reached
+        /// the rule directly there would be no way to tell it apart from a click. See
+        /// <c>OnRuleToggled</c>.
+        /// </remarks>
+        public bool Enabled { get; set; }
 
         public string MatchKindLabel => Rule.MatchKind switch
         {
@@ -895,6 +928,7 @@ public sealed partial class SeewoPage : ModulePageBase
         internal StartupItem(StartupEntry entry)
         {
             Entry = entry;
+            Enabled = entry.Enabled;
         }
 
         internal StartupEntry Entry { get; }
@@ -909,11 +943,20 @@ public sealed partial class SeewoPage : ModulePageBase
 
         public bool CanToggle => Entry.CanToggle;
 
-        public bool Enabled
-        {
-            get => Entry.Enabled;
-            set => Entry.Enabled = value;
-        }
+        /// <summary>
+        /// The state shown in the list, which is only written back to the entry once the
+        /// change has actually been applied.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately not a pass-through to <see cref="StartupEntry.Enabled"/>. The
+        /// two-way binding writes this property while the row container is being created,
+        /// and the setter is what raises <c>Toggled</c>. If the setter wrote straight
+        /// through, the stored state would already equal the shown state by the time the
+        /// handler ran, and there would be no way to tell that write apart from a real
+        /// click. Keeping the two separate is what makes the comparison in
+        /// <c>OnStartupToggled</c> meaningful.
+        /// </remarks>
+        public bool Enabled { get; set; }
 
         /// <inheritdoc cref="DiscoveredRuleItem.ToString"/>
         public override string ToString() => $"{KindLabel} {Name}";
