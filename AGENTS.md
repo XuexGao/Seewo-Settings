@@ -250,8 +250,23 @@ exe 放在根目录、DLL 只放在 `native/x64/` 时，安装永远失败（「
 才有的自动变量，而脚本开了 `Set-StrictMode -Version Latest`，读未定义变量会抛
 `VariableIsUndefined`；`-and` **先求值左操作数**，所以版本判断还没来得及保护它就先抛了。
 
-**规则：** 新增 `.ps1` 必须带 BOM；版本相关的短路判断要把版本判断放前面。
-`build.yml` 有一步会检查 BOM 并用 5.1 的 parser 解析。
+**第三条坑：行首的 `+` 续行。** PowerShell 5.1 的解析器**不接受**括号表达式里以 `+` 开头的续行：
+
+```powershell
+# 5.1 报 "Missing closing ')' in expression."
+Write-Fail ('第一段'
+            + '第二段')
+
+# 正确：数组 + -join（PowerShell 2.0 起就支持）
+Write-Fail (@('第一段'; '第二段') -join '')
+```
+
+PowerShell 7 接受前一种写法，所以本地看不出来。
+
+**规则：** 新增 `.ps1` 必须带 BOM；版本相关的短路判断要把版本判断放前面；
+跨行拼接用 `@(...) -join ''`，不要把 `+` 放在行首。
+`build.yml` 有一步会检查 BOM 并用 **5.1 的 parser** 解析 —— 这一步确实抓到过真实的语法错误，
+不要因为 PowerShell 7 能跑就以为没问题。
 
 ### 13. 后台线程不能碰 XAML 控件
 
@@ -268,8 +283,26 @@ WinUI 3 强制 UI 线程亲和性，在 `Task.Run` 里读任何 XAML 控件都�
 ### 14. ListViewItem 没有自己的可访问名称
 
 `ListViewItem` 不会从内容派生 automation name，所以每个列表行对辅助技术和 UI 自动化来说
-都是「未命名列表项」，测试也无法按名字定位。`Styles/Theme.xaml` 里有一条全局
-`ListViewItem` 样式把名字绑定到条目本身，条目类需要重写 `ToString()` 返回用户看到的那行文字。
+都是「未命名列表项」，测试也无法按名字定位 —— 实测行只暴露类型名（`SeewoPage+ProcessItem`）。
+
+**隐式 `Style` 不管用。** `XamlControlsResources` 自己就定义了隐式 `ListViewItem` 样式，
+后合并的隐式样式在容器生成时**不会可靠地覆盖它**：第一版修复正是这么写的，测试报告确认
+行仍然只有类型名。正确做法是给样式加 `x:Key`，再用每个 `ListView` 的
+`ItemContainerStyle` 指定它 —— 那是直接作用于生成的容器。
+
+**`BasedOn` 是必须的。** 只写 `AutomationProperties.Name` 和
+`HorizontalContentAlignment` 的样式**没有 `Template`**，套上去之后每一行都渲染不出内容，
+比原来缺名字严重得多。必须继承 `DefaultListViewItemStyle`（WinUI 自己的 generic.xaml
+就是这么用的）：
+
+```xml
+<Style x:Key="AccessibleListViewItemStyle" TargetType="ListViewItem"
+       BasedOn="{StaticResource DefaultListViewItemStyle}">
+    <Setter Property="AutomationProperties.Name" Value="{Binding}" />
+</Style>
+```
+
+条目类要重写 `ToString()` 返回用户看到的那行文字，`{Binding}` 才绑得到有意义的内容。
 
 ### 15. Toast 有硬性元素上限和场景前提
 
