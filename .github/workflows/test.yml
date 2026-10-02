@@ -307,6 +307,7 @@ jobs:
             $size = (Get-Item $png).Length
             Write-Host "已保存画面：$png ($size 字节)" -ForegroundColor Green
             "摄像头取帧：成功（$size 字节）" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            $stepExit = 0
           }
           else {
             Write-Host '没有产生画面文件。' -ForegroundColor Yellow
@@ -316,13 +317,26 @@ jobs:
             if ($captureExit -eq 7) {
               Write-Host '原因：摄像头已注册但无法激活。CI 虚拟机通常没有可用的视频栈，这是环境限制，不是代码缺陷。' -ForegroundColor Yellow
               "摄像头取帧：未激活（环境限制，CI 虚拟机无视频设备）" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+              $stepExit = 0
             }
             elseif ($captureExit -eq 8 -or $captureExit -eq 9) {
               Write-Host '原因：摄像头已激活但没有输出有效画面。这可能是真实缺陷，请检查上方输出。' -ForegroundColor Red
               "摄像头取帧：失败（已激活但无有效画面）" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+              $stepExit = 1
             }
             else {
               Write-Host "原因：capture 以退出码 $captureExit 结束。" -ForegroundColor Yellow
               "摄像头取帧：退出码 $captureExit" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+              $stepExit = 1
             }
           }
+
+          # End with a deliberate exit code rather than letting $LASTEXITCODE leak out.
+          # The pwsh wrapper the runner generates exits with $LASTEXITCODE when it is set,
+          # so the diagnostic call above decided this step's result. On the CI VM capture
+          # always returns 7 because there is no video stack, which produced a
+          # "Process completed with exit code 1" failure annotation on every run - a
+          # signal with no information in it, and the kind that teaches people to ignore
+          # annotations. Exit code 7 is now a clean pass; 8, 9 and anything else still
+          # record a failure, so a genuine regression keeps the marker it had.
+          exit $stepExit
