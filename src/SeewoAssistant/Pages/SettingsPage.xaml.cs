@@ -4,6 +4,7 @@ using System.Reflection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using SeewoAssistant.Core.Configuration;
+using SeewoAssistant.Core.Services;
 using SeewoAssistant.Core.Services.CaptureGuard;
 
 namespace SeewoAssistant.Pages;
@@ -83,6 +84,8 @@ public sealed partial class SettingsPage : ModulePageBase
             $"虚拟摄像头后端：{capability.Summary}；" +
             $"原生组件：{(Services.VirtualCamera.IsSetupToolAvailable ? "已就位" : "缺失")}；" +
             $"跨进程载荷：{(Services.CaptureGuard.IsCrossProcessAvailable ? "已就位" : "缺失")}";
+
+        RefreshSystemIntegration();
     }
 
     // ------------------------------------------------------------------ load
@@ -482,6 +485,180 @@ public sealed partial class SettingsPage : ModulePageBase
 
         Report("已重置跨进程风险确认。下次开启时会重新弹出确认对话框。", StatusSeverity.Success);
     }
+
+    // ------------------------------------------------------------------ system integration
+
+    /// <summary>
+    /// Redraws the system-integration card from the live machine state.
+    /// </summary>
+    /// <remarks>
+    /// Read-only and unelevated: reading HKLM and HKCU needs no administrator rights, which is
+    /// what lets the card tell the truth about where the CLSID points before the user decides
+    /// whether to change anything.
+    /// </remarks>
+    private void RefreshSystemIntegration()
+    {
+        var state = Services.SystemIntegration.GetState();
+        var lines = new List<string>();
+
+        foreach (var component in state.Components)
+        {
+            lines.Add(component.Describe());
+        }
+
+        if (state.RecordedPathDiffers)
+        {
+            lines.Add(
+                $"系统记录的安装目录：{state.RecordedInstallPath}" +
+                $"（当前目录：{Services.SystemIntegration.AppDirectory}）");
+        }
+
+        if (state.HasOrphanedRegistration)
+        {
+            lines.Add("有注册指向已删除或其他目录，点「注册到当前目录」可以修正。");
+        }
+
+        var shortcuts = new List<string>();
+
+        if (state.DesktopShortcutExists)
+        {
+            shortcuts.Add("桌面");
+        }
+
+        if (state.StartMenuShortcutExists)
+        {
+            shortcuts.Add("开始菜单");
+        }
+
+        lines.Add(shortcuts.Count == 0
+            ? "还没有创建快捷方式。"
+            : $"已有快捷方式：{string.Join("、", shortcuts)}。");
+
+        lines.Add(state.IsListedInAppsAndFeatures
+            ? "已在「应用和功能」中登记，可以从那里卸载。"
+            : "未在「应用和功能」中登记；直接删除文件夹不会清理系统里的注册。");
+
+        lines.Add(state.IsElevated
+            ? "当前以管理员身份运行，注册和清除不会弹提权提示。"
+            : "当前不是管理员身份，注册和清除会弹出系统提权提示。");
+
+        lines.Add("本机只使用其中一个后端，另一个显示「未注册」是正常的。");
+
+        SystemIntegrationStatusText.Text = string.Join("\n", lines);
+    }
+
+    private async void OnRegisterToCurrentFolder(object sender, RoutedEventArgs e)
+    {
+        var state = Services.SystemIntegration.GetState();
+
+        if (!await ConfirmAsync(
+                "注册到当前目录",
+                "这会把虚拟摄像头组件注册到系统（HKLM 里的 COM 注册表项），"
+                + "并把系统记录的安装目录改成本程序的目录：\n\n"
+                + Services.SystemIntegration.AppDirectory + "\n\n"
+                + (state.IsElevated
+                    ? "当前已经以管理员身份运行，不会弹出提权提示。"
+                    : "需要管理员权限，接下来会弹出系统提权提示。")
+                + "\n\n是否继续？",
+                "注册"))
+        {
+            return;
+        }
+
+        await RunGuardedAsync("注册到当前目录", async () =>
+        {
+            var result = await Services.SystemIntegration.RunElevatedAsync(NativeScriptAction.Install);
+            RefreshSystemIntegration();
+            ReportScriptResult(result);
+        });
+    }
+
+    private async void OnCleanupSystemChanges(object sender, RoutedEventArgs e)
+    {
+        if (!await ConfirmAsync(
+                "清除本程序对系统的所有改动",
+                "这会注销本程序注册到系统的虚拟摄像头 COM 组件，移除系统记录的安装目录、"
+                + "本程序创建的防火墙规则、快捷方式，以及「应用和功能」里的登记。\n\n"
+                + "它不依赖本程序的原生文件，删除文件夹之后也能用来清理残留。"
+                + "组件注册部分需要管理员权限，接下来会弹出系统提权提示。这个操作不可撤销。",
+                "清除"))
+        {
+            return;
+        }
+
+        await RunGuardedAsync("清除系统改动", async () =>
+        {
+            var scriptResult = await Services.SystemIntegration.RunElevatedAsync(NativeScriptAction.Cleanup);
+
+            // The per-user half of the change lives here, not in the script: the shortcut and
+            // the「应用和功能」entry are the app's own doing. They are cleaned even when the
+            // elevated half was declined, and the message says which half did not run.
+            var apps = Services.SystemIntegration.UnregisterFromAppsAndFeatures();
+            var shortcuts = Services.SystemIntegration.RemoveShortcuts();
+
+            RefreshSystemIntegration();
+
+            if (scriptResult.Success && apps.Success && shortcuts.Success)
+            {
+                Report("已清除本程序对系统的所有改动。", StatusSeverity.Success);
+                return;
+            }
+
+            var messages = new List<string> { scriptResult.Message };
+
+            if (!apps.Success)
+            {
+                messages.Add(apps.Message);
+            }
+
+            if (!shortcuts.Success)
+            {
+                messages.Add(shortcuts.Message);
+            }
+
+            Report(
+                string.Join("；", messages.Where(m => !string.IsNullOrWhiteSpace(m))),
+                scriptResult.UserCancelled ? StatusSeverity.Warning : StatusSeverity.Error);
+        });
+    }
+
+    private void OnCreateDesktopShortcut(object sender, RoutedEventArgs e) =>
+        RunShortcutAction(() => Services.SystemIntegration.CreateShortcut(ShortcutLocation.Desktop));
+
+    private void OnCreateStartMenuShortcut(object sender, RoutedEventArgs e) =>
+        RunShortcutAction(() => Services.SystemIntegration.CreateShortcut(ShortcutLocation.StartMenu));
+
+    private void OnRemoveShortcuts(object sender, RoutedEventArgs e) =>
+        RunShortcutAction(() => Services.SystemIntegration.RemoveShortcuts());
+
+    private void RunShortcutAction(Func<ActionResult> action)
+    {
+        var result = action();
+        RefreshSystemIntegration();
+        Report(result.Message, result.Success ? StatusSeverity.Success : StatusSeverity.Error);
+    }
+
+    private void OnToggleAppsAndFeatures(object sender, RoutedEventArgs e)
+    {
+        // The button is one control in both directions, so the current state decides what it
+        // does - and the card above always says which of the two just happened.
+        var listed = Services.SystemIntegration.GetState().IsListedInAppsAndFeatures;
+
+        var result = listed
+            ? Services.SystemIntegration.UnregisterFromAppsAndFeatures()
+            : Services.SystemIntegration.RegisterInAppsAndFeatures();
+
+        RefreshSystemIntegration();
+        Report(result.Message, result.Success ? StatusSeverity.Success : StatusSeverity.Error);
+    }
+
+    /// <summary>Reports a script result, treating a declined UAC prompt as a decision.</summary>
+    private void ReportScriptResult(ElevatedScriptResult result) =>
+        Report(
+            result.Message,
+            result.Success
+                ? StatusSeverity.Success
+                : (result.UserCancelled ? StatusSeverity.Warning : StatusSeverity.Error));
 
     private void OpenInExplorer(string path)
     {

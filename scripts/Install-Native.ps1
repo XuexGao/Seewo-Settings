@@ -31,7 +31,7 @@
 
 [CmdletBinding()]
 param(
-    [ValidateSet('Install', 'Uninstall', 'Status')]
+    [ValidateSet('Install', 'Uninstall', 'Status', 'Cleanup')]
     [string]$Action = 'Install',
 
     [ValidateSet('Auto', 'x64', 'x86')]
@@ -40,6 +40,29 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+# The CLSIDs the native components register. The same two strings appear in
+# installer/SeewoAssistant.iss and in the application's SystemIntegrationService,
+# because all three have to be able to remove the registration on their own: the
+# uninstaller after the payload is gone, this script when only it is left, and the
+# application when the user asks it to clean up. A mismatch between the copies is
+# silent - every side reports success and the keys stay - so
+# SystemIntegrationContractTests compares all three.
+$MediaSourceClsid = '{A7E4B2C1-5D3F-4A88-9B6E-1C2D3E4F5A60}'
+$DirectShowClsid = '{B8F5C3D2-6E4A-4B99-8C7F-2D3E4F5A6B71}'
+
+# Both registry views. A 32-bit host application loads the x86 DirectShow filter,
+# which registers under WOW6432Node; removing only the 64-bit keys is what leaves a
+# camera that still enumerates for those applications and can never open.
+$ClsidRegistryPaths = @(
+    'HKLM:\SOFTWARE\Classes\CLSID'
+    'HKLM:\SOFTWARE\Classes\WOW6432Node\CLSID'
+)
+
+# Where this script records which copy of the application owns the registration.
+# The application reads it back to notice that the shared CLSID points at a
+# different directory.
+$OwnSettingsKey = 'HKLM:\SOFTWARE\SeewoAssistant'
 
 # ---------------------------------------------------------------------- helpers
 
@@ -130,12 +153,9 @@ function Show-Status {
 
     Write-Header 'COM 组件注册状态'
 
-    $mediaSourceClsid = '{A7E4B2C1-5D3F-4A88-9B6E-1C2D3E4F5A60}'
-    $dshowClsid = '{B8F5C3D2-6E4A-4B99-8C7F-2D3E4F5A6B71}'
-
     foreach ($entry in @(
-            @{ Name = 'Media Foundation 媒体源'; Clsid = $mediaSourceClsid },
-            @{ Name = 'DirectShow 源滤镜'; Clsid = $dshowClsid })) {
+            @{ Name = 'Media Foundation 媒体源'; Clsid = $MediaSourceClsid },
+            @{ Name = 'DirectShow 源滤镜'; Clsid = $DirectShowClsid })) {
 
         $key = "HKLM:\SOFTWARE\Classes\CLSID\$($entry.Clsid)\InProcServer32"
 
@@ -194,6 +214,94 @@ function Show-Status {
     }
 }
 
+function Remove-ComRegistrationKeys {
+    # Deletes the CLSID keys outright, without regsvr32 and without needing the DLL.
+    #
+    # This is the case that produced the reported defect. `regsvr32 /u` cannot
+    # unregister a file that is no longer there, and the previous version only ran it
+    # `if (Test-Path $dshowDll)` - so an uninstall or a cleanup performed after the
+    # payload was gone silently removed nothing. What survived was worse than a stale
+    # key: every DirectShow enumeration still listed "Seewo Virtual Camera", selecting
+    # it always failed, and the only tool that could remove it (this script) had just
+    # been deleted together with the install directory.
+    $removed = 0
+
+    foreach ($clsid in @($MediaSourceClsid, $DirectShowClsid)) {
+        foreach ($base in $ClsidRegistryPaths) {
+            $key = Join-Path $base $clsid
+
+            if (-not (Test-Path $key)) {
+                continue
+            }
+
+            Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue
+
+            if (Test-Path $key) {
+                Write-Warn "无法删除注册项 $key（可能被占用或权限不足）"
+            }
+            else {
+                Write-Ok "已删除注册项 $key"
+                $removed++
+            }
+        }
+    }
+
+    if ($removed -eq 0) {
+        Write-Info '没有需要删除的 COM 注册项'
+    }
+
+    return $removed
+}
+
+function Remove-FirewallRules {
+    $rules = Get-NetFirewallRule -DisplayName 'SeewoAssistant Block*' -ErrorAction SilentlyContinue
+
+    if ($rules) {
+        $rules | Remove-NetFirewallRule
+        Write-Ok "已移除 $($rules.Count) 条防火墙规则"
+    }
+    else {
+        Write-Info '没有需要移除的防火墙规则'
+    }
+}
+
+function Remove-OwnSettingsKey {
+    if (Test-Path $OwnSettingsKey) {
+        Remove-Item -Path $OwnSettingsKey -Recurse -Force -ErrorAction SilentlyContinue
+
+        if (Test-Path $OwnSettingsKey) {
+            Write-Warn "无法删除 $OwnSettingsKey"
+        }
+        else {
+            Write-Ok '已删除本程序记录的系统集成信息'
+        }
+    }
+}
+
+function Write-InstallRecord {
+    param([string]$Root)
+
+    # Written before the registration is attempted rather than after, so the record
+    # also exists on a machine where the camera could not be created (Windows 10
+    # without a capture device, camera access switched off). "Which copy owns the
+    # registration" is a separate fact from "did the camera start".
+    if (-not (Test-Path $OwnSettingsKey)) {
+        New-Item -Path $OwnSettingsKey -Force | Out-Null
+    }
+
+    New-ItemProperty -Path $OwnSettingsKey -Name 'InstallPath' -Value $Root `
+        -PropertyType String -Force | Out-Null
+
+    $exe = Join-Path $Root 'SeewoAssistant.exe'
+    if (Test-Path $exe) {
+        $version = (Get-Item $exe).VersionInfo.FileVersion
+        if (-not [string]::IsNullOrWhiteSpace($version)) {
+            New-ItemProperty -Path $OwnSettingsKey -Name 'Version' -Value $version `
+                -PropertyType String -Force | Out-Null
+        }
+    }
+}
+
 function Install-Native {
     param([string]$Root)
 
@@ -201,6 +309,8 @@ function Install-Native {
     $nativePath = Get-NativePath -Root $Root -TargetArchitecture $targetArchitecture
 
     Write-Header "安装原生组件（$targetArchitecture）"
+
+    Write-InstallRecord -Root $Root
 
     if (-not (Test-Path $nativePath)) {
         Write-Fail "未找到原生组件目录：$nativePath"
@@ -308,24 +418,62 @@ function Uninstall-Native {
         Write-Info '未找到 DirectShow 滤镜，跳过'
     }
 
+    # After the best-effort unregister above, delete the keys outright. This covers
+    # both the case where the DLL was already missing (where regsvr32 above was
+    # skipped entirely) and the case where it existed but refused to unregister.
+    Write-Header '删除 COM 注册项'
+
+    Remove-ComRegistrationKeys | Out-Null
+
     Write-Header '移除本程序创建的防火墙规则'
 
     try {
-        $rules = Get-NetFirewallRule -DisplayName 'SeewoAssistant Block*' -ErrorAction SilentlyContinue
-        if ($rules) {
-            $rules | Remove-NetFirewallRule
-            Write-Ok "已移除 $($rules.Count) 条规则"
-        }
-        else {
-            Write-Info '没有需要移除的规则'
-        }
+        Remove-FirewallRules
     }
     catch {
         Write-Warn "移除防火墙规则失败：$($_.Exception.Message)"
     }
 
+    Write-Header '删除系统集成记录'
+
+    Remove-OwnSettingsKey
+
     Write-Header '卸载完成'
     Write-Info '配置文件保留在 %LOCALAPPDATA%\SeewoAssistant，如需彻底清理可手动删除。'
+
+    return 0
+}
+
+function Cleanup-Native {
+    param([string]$Root)
+
+    # Unlike Uninstall, this deliberately does not care whether the payload is still
+    # present, which copy it belongs to, or whether this directory is the one that
+    # registered the components. It is the "get this machine back to a clean state"
+    # action: the entry point for a copy that was moved, was deleted by hand, or lost
+    # the race with a second copy over the shared CLSID.
+    Write-Header '清除本程序对系统的改动'
+
+    Write-Header 'COM 组件注册'
+
+    Remove-ComRegistrationKeys | Out-Null
+
+    Write-Header '防火墙规则'
+
+    try {
+        Remove-FirewallRules
+    }
+    catch {
+        Write-Warn "移除防火墙规则失败：$($_.Exception.Message)"
+    }
+
+    Write-Header '系统集成记录'
+
+    Remove-OwnSettingsKey
+
+    Write-Header '清理完成'
+    Write-Info '个人配置和日志没有删除，仍在 %LOCALAPPDATA%\SeewoAssistant。'
+    Write-Info "本程序的文件也没有删除，仍在 $Root；现在直接删除这个目录不会再留下任何系统残留。"
 
     return 0
 }
@@ -363,6 +511,7 @@ try {
     switch ($Action) {
         'Install' { $exitCode = Install-Native -Root $releaseRoot }
         'Uninstall' { $exitCode = Uninstall-Native -Root $releaseRoot }
+        'Cleanup' { $exitCode = Cleanup-Native -Root $releaseRoot }
     }
 
     exit $exitCode

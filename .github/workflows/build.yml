@@ -377,6 +377,52 @@ jobs:
 
       # ------------------------------------------------------------------ publish
 
+      # One version, decided once and used by everything that has to agree about it:
+      # the exe's version resource, the archive names, and the installer's AppVersion
+      # (which is what "Apps & features" displays). They used to be computed
+      # separately - the SDK defaulted the exe to 1.0.0 while the installer step
+      # hard-coded 0.0.0 - so the release contradicted itself and a user reading the
+      # version off the uninstall entry could not say which build they had.
+      #
+      # On a tag push the tag is authoritative. Everywhere else the number comes from
+      # the csproj, which is the only copy a developer edits by hand, so a plain
+      # branch build still reports something meaningful instead of 0.0.0.
+      - name: Decide the version
+        id: app_version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          [xml]$project = Get-Content 'src/SeewoAssistant/SeewoAssistant.csproj'
+          $declared = $project.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+
+          if (-not $declared) {
+            Write-Error 'csproj 里找不到 <Version>，无法确定版本号。'
+            exit 1
+          }
+
+          $version = $declared.Trim()
+
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $version = '${{ github.ref_name }}'.TrimStart('v')
+          }
+
+          # Inno Setup's VersionInfoVersion and the Win32 version resource both accept
+          # only up to four dot-separated numbers, so a prerelease tag such as
+          # "1.2.3-rc1" has to be reduced for those fields while staying intact for
+          # the fields that are just display strings.
+          $numeric = $version
+          if ($numeric -match '^(\d+(?:\.\d+){0,3})') {
+            $numeric = $Matches[1]
+          } else {
+            Write-Error "版本号「$version」不是以数字开头，无法用作程序集版本。"
+            exit 1
+          }
+
+          Write-Host "版本：$version（数字形式：$numeric）"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "version_numeric=$numeric" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
       # Self-contained single file: the user extracts the zip and runs the exe with
       # no separate Windows App SDK or .NET install.
       # x64 only. The native components are built for x64 and Win32, and bitness
@@ -402,6 +448,7 @@ jobs:
           -p:WindowsAppSDKSelfContained=true
           -p:EnableMsixTooling=true
           -p:Platform=x64
+          -p:Version=${{ steps.app_version.outputs.version }}
           -o artifacts/publish/win-x64
 
       - name: Publish the application (win-x64, self-contained folder)
@@ -414,6 +461,7 @@ jobs:
             -p:WindowsPackageType=None `
             -p:WindowsAppSDKSelfContained=true `
             -p:Platform=x64 `
+            -p:Version=${{ steps.app_version.outputs.version }} `
             -o artifacts/publish/win-x64
         shell: pwsh
 
@@ -488,7 +536,11 @@ jobs:
             "$target/native/x64/SeewoVirtualCamera.dll",
             "$target/native/x64/SeewoVirtualCamera.DShow.dll",
             "$target/native/x86/SeewoVirtualCamera.DShow.dll",
-            "$target/scripts/Install-Native.ps1"
+            "$target/scripts/Install-Native.ps1",
+            # The zip distribution has no installer, so this is the only thing that
+            # can undo what it registered. Losing it from the package would put the
+            # orphaned-Com registration defect straight back.
+            "$target/scripts/Uninstall-Portable.ps1"
           )
 
           $missing = $required | Where-Object { -not (Test-Path $_) }
@@ -591,24 +643,16 @@ jobs:
 
           Write-Host "使用编译器：$iscc"
 
-          # On a tag push the version comes from the tag with its leading "v"
-          # stripped, because AppVersion has to be a plain version number and the
-          # installer should match the Release it is attached to. Every other
-          # build leaves the script's own default in place.
-          $version = '0.0.0'
-          if ('${{ github.ref_type }}' -eq 'tag') {
-            $version = '${{ github.ref_name }}'.TrimStart('v')
-          }
+          # Both values come from the "Decide the version" step, so the installer
+          # cannot disagree with the exe it is installing. It used to compute its own
+          # and defaulted to 0.0.0, which is the number that ended up in
+          # "Apps & features".
+          $version = '${{ steps.app_version.outputs.version }}'
+          $numeric = '${{ steps.app_version.outputs.version_numeric }}'
 
-          # AppVersion may carry a prerelease suffix ("1.2.3-rc1"), but Inno Setup's
-          # VersionInfoVersion directive accepts only up to four dot-separated
-          # numbers, and passing it a suffix fails the compile. The numeric part is
-          # therefore extracted here and passed as a second define.
-          $numeric = $version
-          if ($numeric -match '^(\d+(?:\.\d+){0,3})') {
-            $numeric = $Matches[1]
-          } else {
-            $numeric = '0.0.0'
+          if (-not $version) {
+            Write-Error '没有拿到版本号，无法编译安装包。'
+            exit 1
           }
 
           Write-Host "安装包版本：$version（版本号字段：$numeric）"
@@ -733,8 +777,9 @@ jobs:
             两种方式的内容完全相同，都不需要安装 .NET 运行时、Windows App SDK 运行时
             或 VC++ 可再发行组件。
 
-            首次使用虚拟摄像头需要以管理员身份运行 `scripts\Install-Native.ps1 -Action Install`
-            注册原生组件。详见压缩包内的 README.md。
+            首次使用虚拟摄像头不需要额外操作：安装向导里默认勾选的「注册虚拟摄像头组件」
+            已经完成注册，解压版可以在应用内的「设置 → 系统集成」一键注册。
+            需要手工处理时用 `scripts\Install-Native.ps1`，详见压缩包内的 README.md。
 
             **系统要求：** Windows 10 版本 2004（内部版本 19041）或更高，x64。
             Windows 11 使用官方虚拟摄像头 API；Windows 10 使用 DirectShow 回退方案，

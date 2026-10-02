@@ -1,5 +1,6 @@
 using SeewoAssistant.Core.Abstractions;
 using SeewoAssistant.Core.Configuration;
+using SeewoAssistant.Core.Services;
 using SeewoAssistant.Core.Services.CaptureGuard;
 using SeewoAssistant.Core.Services.Desktop;
 using SeewoAssistant.Core.Services.Power;
@@ -57,6 +58,11 @@ public sealed class AppServices : IAsyncDisposable
         AppStartup = new AppStartupService(_logger);
         Power = new PowerService(_logger);
 
+        // Owns the machine-wide pieces the portable copy cannot express by itself: the
+        // COM registration the native script writes, the shortcuts, and the per-user
+        //「应用和功能」entry.
+        SystemIntegration = new SystemIntegrationService(logger: _logger);
+
         ActionExecutor = new ActionExecutor(
             VirtualCamera, PrivacyMonitor, CaptureGuard,
             SeewoControl, Firewall, StartupManager, Power, _logger);
@@ -93,6 +99,12 @@ public sealed class AppServices : IAsyncDisposable
 
     /// <summary>Registers this app in the per-user Run key.</summary>
     public AppStartupService AppStartup { get; }
+
+    /// <summary>
+    /// Reports and repairs this copy's machine-wide integration: the native COM
+    /// registration, the shortcuts, and the「应用和功能」entry.
+    /// </summary>
+    public SystemIntegrationService SystemIntegration { get; }
 
     public PowerService Power { get; }
 

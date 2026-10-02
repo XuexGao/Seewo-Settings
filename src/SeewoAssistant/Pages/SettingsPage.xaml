@@ -65,6 +65,58 @@
                 </StackPanel>
             </Border>
 
+            <!-- ============================== system integration ============================== -->
+            <!-- The native components register into HKLM and the CLSID is machine-wide, so a
+                 second (or portable) copy silently takes the registration over. This card is
+                 the only place the user can see where it currently points and put it back. -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="系统集成" Style="{StaticResource CardTitleStyle}" />
+
+                    <TextBlock Style="{StaticResource CardBodyStyle}"
+                               Text="解压即用的发行包不会自己写系统和用户目录里的这些东西，所以在这里管理。注册组件需要管理员权限，会弹出系统提权提示；快捷方式和「应用和功能」记录都只写到当前用户，不需要提权。" />
+
+                    <TextBlock x:Name="SystemIntegrationStatusText"
+                               Style="{StaticResource CardBodyStyle}"
+                               FontSize="12"
+                               IsTextSelectionEnabled="True" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="RegisterToCurrentFolderButton"
+                                Click="OnRegisterToCurrentFolder"
+                                AutomationProperties.Name="注册到当前目录（需要管理员）"
+                                Content="注册到当前目录（需要管理员）" />
+
+                        <Button x:Name="CleanupSystemChangesButton"
+                                Click="OnCleanupSystemChanges"
+                                AutomationProperties.Name="清除本程序对系统的所有改动"
+                                Content="清除本程序对系统的所有改动" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="CreateDesktopShortcutButton"
+                                Click="OnCreateDesktopShortcut"
+                                AutomationProperties.Name="在桌面创建快捷方式"
+                                Content="在桌面创建快捷方式" />
+
+                        <Button x:Name="CreateStartMenuShortcutButton"
+                                Click="OnCreateStartMenuShortcut"
+                                AutomationProperties.Name="在开始菜单创建快捷方式"
+                                Content="在开始菜单创建快捷方式" />
+
+                        <Button x:Name="RemoveShortcutsButton"
+                                Click="OnRemoveShortcuts"
+                                AutomationProperties.Name="移除快捷方式"
+                                Content="移除快捷方式" />
+
+                        <Button x:Name="ToggleAppsAndFeaturesButton"
+                                Click="OnToggleAppsAndFeatures"
+                                AutomationProperties.Name="在「应用和功能」中显示/隐藏"
+                                Content="在「应用和功能」中显示/隐藏" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
             <!-- ============================== camera ============================== -->
             <TextBlock Text="虚拟摄像头默认值" Style="{StaticResource SectionHeaderStyle}" />
 

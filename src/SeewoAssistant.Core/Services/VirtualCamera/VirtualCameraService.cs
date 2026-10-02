@@ -46,11 +46,15 @@ public sealed record VirtualCameraCapability(
 [SupportedOSPlatform("windows")]
 public sealed class VirtualCameraService : IAsyncDisposable
 {
-    /// <summary>The media source CLSID, matching <c>native/SeewoVirtualCamera</c>.</summary>
-    public const string MediaSourceClsid = "{A7E4B2C1-5D3F-4A88-9B6E-1C2D3E4F5A60}";
+    /// <summary>
+    /// The media source CLSID, matching <c>native/SeewoVirtualCamera</c>. Defined once in
+    /// <see cref="SystemIntegrationService"/> because that is where the registration state is
+    /// read; a second literal here could silently disagree with the one the script writes.
+    /// </summary>
+    public const string MediaSourceClsid = SystemIntegrationService.MediaSourceClsid;
 
     /// <summary>The DirectShow filter CLSID, matching <c>native/SeewoVirtualCamera.DShow</c>.</summary>
-    public const string DirectShowFilterClsid = "{B8F5C3D2-6E4A-4B99-8C7F-2D3E4F5A6B71}";
+    public const string DirectShowFilterClsid = SystemIntegrationService.DirectShowFilterClsid;
 
     /// <summary>The friendly name shown in device lists.</summary>
     public const string FriendlyName = "SeewoAssistant Virtual Camera";

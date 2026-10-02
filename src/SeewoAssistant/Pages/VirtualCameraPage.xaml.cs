@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using SeewoAssistant.Core.Services;
 using SeewoAssistant.Core.Services.VirtualCamera;
 using Windows.Storage.Pickers;
 
@@ -58,6 +59,7 @@ public sealed partial class VirtualCameraPage : ModulePageBase
 
         UpdateColorPreview();
         UpdateBackend();
+        UpdateRegistrationState();
         UpdatePumpStatus();
 
         ColorTextBox.TextChanged += (_, _) => UpdateColorPreview();
@@ -141,6 +143,46 @@ public sealed partial class VirtualCameraPage : ModulePageBase
         }
     }
 
+    // ------------------------------------------------------------------ registration state
+
+    /// <summary>
+    /// Shows where the native components are actually registered, and offers to point them
+    /// back at this folder when they are not.
+    /// </summary>
+    /// <remarks>
+    /// The CLSID is machine-wide, so this is the only place a second or portable copy can be
+    /// noticed at all: installing one re-points the registration at the new folder and the
+    /// older copy simply stops working, with nothing said. Reading the state needs no
+    /// elevation, so the answer is available before the user commits to anything.
+    /// </remarks>
+    private void UpdateRegistrationState()
+    {
+        var state = Services.SystemIntegration.GetState();
+        var component = FindBackendComponent(state);
+
+        RegistrationStateText.Text = string.Join("\n", state.Components.Select(c => c.Describe()));
+
+        // Only the component this machine's backend uses decides whether anything is wrong:
+        // the install script registers one backend, so the other one legitimately reads
+        // "未注册" on every machine.
+        var needsRegistration = component is null ||
+            component.Status != NativeRegistrationStatus.RegisteredToCurrentFolder;
+
+        ReregisterButton.Visibility = needsRegistration ? Visibility.Visible : Visibility.Collapsed;
+        ReregisterButton.IsEnabled = needsRegistration;
+    }
+
+    /// <summary>Picks the component the detected backend actually uses.</summary>
+    private NativeComponentState? FindBackendComponent(SystemIntegrationState state)
+    {
+        var expected = Services.VirtualCamera.DetectCapability().Backend == VirtualCameraBackend.MediaFoundation
+            ? SystemIntegrationService.MediaSourceClsid
+            : SystemIntegrationService.DirectShowFilterClsid;
+
+        return state.Components.FirstOrDefault(
+            c => string.Equals(c.Clsid, expected, StringComparison.OrdinalIgnoreCase));
+    }
+
     private void UpdatePumpStatus()
     {
         var pumping = Services.VirtualCamera.IsPumping;
@@ -160,32 +202,113 @@ public sealed partial class VirtualCameraPage : ModulePageBase
 
     private async void OnInstall(object sender, RoutedEventArgs e)
     {
-        if (!await ConfirmAsync(
-                "安装虚拟摄像头",
-                "这会把媒体源组件注册到系统（需要管理员权限），并创建一个摄像头实例。\n\n" +
-                "如果程序当前不是以管理员身份运行，注册会失败并提示。是否继续？",
-                "开始安装"))
+        var state = Services.SystemIntegration.GetState();
+        var component = FindBackendComponent(state);
+
+        var needsRegistration = component is null ||
+            component.Status != NativeRegistrationStatus.RegisteredToCurrentFolder;
+
+        // Registering writes HKLM, which an unelevated process cannot do. The report found the
+        // button simply failing here; the elevated script is the supported path instead.
+        var useElevatedScript = needsRegistration && !state.IsElevated;
+
+        var message = "这会把媒体源组件注册到系统（需要管理员权限），并创建一个摄像头实例。\n\n";
+
+        if (useElevatedScript)
+        {
+            message += "程序当前不是以管理员身份运行，接下来会弹出系统提权提示。\n\n";
+        }
+        else if (!needsRegistration)
+        {
+            message += "组件已经注册到当前目录，这一步只会创建摄像头实例。\n\n";
+        }
+
+        message += "是否继续？";
+
+        if (!await ConfirmAsync("安装虚拟摄像头", message, "开始安装"))
         {
             return;
         }
 
         await RunSetupAsync("正在安装虚拟摄像头…", async () =>
         {
-            var register = await Services.VirtualCamera.RegisterAsync();
-            AppendOutput(register.Message);
-
-            if (!register.Success)
+            if (needsRegistration)
             {
-                Report("注册失败。请尝试以管理员身份重新运行本程序。", StatusSeverity.Error);
-                return;
+                if (useElevatedScript)
+                {
+                    var script = await Services.SystemIntegration.RunElevatedAsync(NativeScriptAction.Install);
+                    AppendOutput(script.Message);
+
+                    if (!script.Success)
+                    {
+                        if (script.UserCancelled)
+                        {
+                            AppendOutput("也可以手动以管理员身份运行 scripts\\Install-Native.ps1。");
+                        }
+
+                        Report(
+                            script.Message,
+                            script.UserCancelled ? StatusSeverity.Warning : StatusSeverity.Error);
+                        return;
+                    }
+                }
+                else
+                {
+                    var register = await Services.VirtualCamera.RegisterAsync();
+                    AppendOutput(register.Message);
+
+                    if (!register.Success)
+                    {
+                        Report("注册失败。请尝试以管理员身份重新运行本程序。", StatusSeverity.Error);
+                        return;
+                    }
+                }
             }
 
+            // The script's install already creates the camera; running create again is
+            // harmless and keeps both paths producing the same result, including when the
+            // registration was already in place.
             var create = await Services.VirtualCamera.CreateCameraAsync();
             AppendOutput(create.Message);
 
             Report(
                 create.Success ? "虚拟摄像头已安装并创建。" : "组件已注册，但创建摄像头失败。",
                 create.Success ? StatusSeverity.Success : StatusSeverity.Warning);
+        });
+    }
+
+    private async void OnReregister(object sender, RoutedEventArgs e)
+    {
+        var state = Services.SystemIntegration.GetState();
+
+        if (!await ConfirmAsync(
+                "重新注册到当前目录",
+                "这会把虚拟摄像头组件重新注册到本程序当前所在的目录：\n\n"
+                + Services.SystemIntegration.AppDirectory + "\n\n"
+                + (state.IsElevated
+                    ? "当前已经以管理员身份运行。"
+                    : "需要管理员权限，接下来会弹出系统提权提示。")
+                + "\n\n是否继续？",
+                "重新注册"))
+        {
+            return;
+        }
+
+        await RunSetupAsync("正在重新注册…", async () =>
+        {
+            // The script also updates the HKLM install record, which the in-process path
+            // cannot do; the in-process path only covers a development tree without scripts\.
+            if (File.Exists(Services.SystemIntegration.NativeScriptPath))
+            {
+                var script = await Services.SystemIntegration.RunElevatedAsync(NativeScriptAction.Install);
+                AppendOutput(script.Message);
+                Report(script.Message, script.UserCancelled ? StatusSeverity.Warning : StatusSeverity.Error);
+                return;
+            }
+
+            var result = await Services.VirtualCamera.RegisterAsync();
+            AppendOutput(result.Message);
+            Report(result.Message, result.Success ? StatusSeverity.Success : StatusSeverity.Error);
         });
     }
 
@@ -217,10 +340,15 @@ public sealed partial class VirtualCameraPage : ModulePageBase
 
     private async void OnUninstall(object sender, RoutedEventArgs e)
     {
+        var state = Services.SystemIntegration.GetState();
+
         if (!await ConfirmAsync(
                 "完全卸载",
-                "这会移除摄像头实例并注销媒体源组件。需要管理员权限。\n\n" +
-                "卸载后需要重新安装才能再次使用虚拟摄像头。",
+                "这会从系统注销本程序注册的虚拟摄像头组件（删除 HKLM 里的 COM 注册），并移除摄像头实例。\n\n"
+                + (state.IsElevated
+                    ? "当前已经以管理员身份运行。"
+                    : "注册写在 HKLM，需要管理员权限，接下来会弹出系统提权提示。")
+                + "\n\n卸载后需要重新安装才能再次使用虚拟摄像头。",
                 "完全卸载"))
         {
             return;
@@ -228,6 +356,16 @@ public sealed partial class VirtualCameraPage : ModulePageBase
 
         await RunSetupAsync("正在卸载…", async () =>
         {
+            if (!state.IsElevated && File.Exists(Services.SystemIntegration.NativeScriptPath))
+            {
+                // The in-process unregister needs administrator rights just as much as the
+                // registration does, so an unelevated app has to go through the script.
+                var script = await Services.SystemIntegration.RunElevatedAsync(NativeScriptAction.Uninstall);
+                AppendOutput(script.Message);
+                Report(script.Message, script.UserCancelled ? StatusSeverity.Warning : StatusSeverity.Error);
+                return;
+            }
+
             var result = await Services.VirtualCamera.UnregisterAsync();
             AppendOutput(result.Message);
             Report(result.Message, result.Success ? StatusSeverity.Success : StatusSeverity.Error);
@@ -256,6 +394,7 @@ public sealed partial class VirtualCameraPage : ModulePageBase
         {
             SetupProgress.IsActive = false;
             SetSetupButtonsEnabled(true);
+            UpdateRegistrationState();
             UpdatePumpStatus();
         }
     }

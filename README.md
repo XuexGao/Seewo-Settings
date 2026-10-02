@@ -167,32 +167,61 @@
 - **选择是否创建开始菜单快捷方式**
 - **选择安装完成后是否立即启动**
 
-安装程序默认按「所有用户」安装，需要管理员权限。安装一开始会弹出安装模式对话框，
-选「仅为我安装」即可不需要管理员权限，装到当前用户自己的目录下。
+安装按「所有用户」进行，需要管理员权限，**不会**先让你选安装模式——安装向导直接从
+「选择安装位置」开始。虚拟摄像头的组件也要写到系统里，本来就必须有管理员权限，
+先问一次「为所有用户还是只为我」只会让人以为后者能免掉这一步。
+
+向导里有一项**默认勾选**的「注册虚拟摄像头组件」。保持勾选，装完就能直接用虚拟摄像头；
+取消勾选则安装完成后自行到应用内的「设置 → 系统集成」注册。
 
 卸载请用「设置 → 应用」，或直接运行安装目录下的 `unins000.exe`。
 
-> **卸载不会删除你的配置和日志。** 它们放在 `%LOCALAPPDATA%\SeewoAssistant`，不在安装目录里，
-> 所以重装或升级之后设置、日志和崩溃报告都还在。
+> **卸载会一并注销虚拟摄像头组件。** 不这样做会留下一个指向已删除文件的注册项：
+> Zoom、OBS、ffmpeg 的摄像头列表里永远有一个选不中的「Seewo Virtual Camera」，
+> 而能清掉它的脚本已经随安装目录一起被删了。
+
+> **卸载默认保留你的配置和日志。** 它们放在 `%LOCALAPPDATA%\SeewoAssistant`，不在安装目录里，
+> 所以重装或升级之后设置、日志和崩溃报告都还在。卸载时会问一次是否一并删除。
 
 ### 方式二：解压即用
 
 从 [Releases](../../releases) 下载 `SeewoAssistant-win-x64.zip`，解压到任意目录，
 双击 `SeewoAssistant.exe` 即可运行，无需安装。
 
-### 注册原生组件（两种方式都需要）
-
-**首次使用虚拟摄像头**需要注册原生组件（写注册表，需要管理员权限）。
-以管理员身份打开 PowerShell：
+解压版不打动系统里的任何东西。要**移除**它时，先运行一次清理脚本，再删目录：
 
 ```powershell
-cd <安装目录>\scripts
-.\Install-Native.ps1 -Action Install     # 安装
-.\Install-Native.ps1 -Action Status      # 查看当前状态
-.\Install-Native.ps1 -Action Uninstall   # 卸载
+cd <解压目录>\scripts
+.\Uninstall-Portable.ps1            # 注销组件、快捷方式，并提示删除目录
+.\Uninstall-Portable.ps1 -DeleteFolder   # 连目录一起删
+```
+
+> **先清理再删目录。** 直接删目录会重演上面说的「僵尸摄像头」：注册项留在系统里，
+> 而清除它的脚本正好被你删掉了。忘了也不要紧——清理脚本不依赖程序文件是否存在，
+> 从别处调用同样有效。
+
+### 注册原生组件
+
+虚拟摄像头需要把组件注册到系统（写注册表，需要管理员权限）。**安装程序会自动完成这一步**，
+解压版则可以在应用里点一下完成：
+
+「设置 → 系统集成 → 注册到当前目录」，需要时会弹出 UAC 提示。
+
+也可以用脚本，两种方式都一样：
+
+```powershell
+cd <安装或解压目录>\scripts
+.\Install-Native.ps1 -Action Install     # 注册
+.\Install-Native.ps1 -Action Status      # 查看当前状态（不需要管理员权限）
+.\Install-Native.ps1 -Action Uninstall   # 注销
+.\Install-Native.ps1 -Action Cleanup     # 清除本程序对系统的全部改动（含孤立注册项）
 ```
 
 脚本会按系统版本自动选择后端。
+
+> **注册是全局的，一份机器上只认最后注册的那个目录。** 如果同时留着安装版和解压版，
+> 后注册的会覆盖前一个；把先注册的那份目录删掉，后一个也就失效了。
+> 应用启动时会发现这种「注册指向别的目录」，并在「设置 → 系统集成」里提示修复。
 
 **关于 `SeewoAssistant-native-components.zip`：** 发行页面还有一个单独的包，里面只有
 `x64/` 和 `x86/` 的原生 DLL（虚拟摄像头媒体源、DirectShow 滤镜、安装工具）。
@@ -283,7 +312,8 @@ Seewo-Settings/
 │  ├─ SeewoVirtualCamera/      MF 自定义媒体源
 │  ├─ SeewoVirtualCamera.DShow/ DirectShow 源滤镜
 │  ├─ SeewoVirtualCamera.Setup/ 注册与摄像头管理工具
-├─ scripts/Install-Native.ps1  安装 / 卸载 / 状态查询
+├─ scripts/Install-Native.ps1      注册 / 注销 / 状态查询 / 清除系统改动
+├─ scripts/Uninstall-Portable.ps1  解压版的移除入口（清理系统改动）
 ├─ installer/SeewoAssistant.iss 安装程序定义（Inno Setup 6）
 ├─ .github/workflows/          build.yml（构建）、test.yml（验证）
 ├─ AGENTS.md                   实现细节与开发指南
