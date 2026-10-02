@@ -102,28 +102,20 @@ public sealed class InstallerContractTests
         // `regsvr32 /u` could no longer run, so the CLSID survived pointing at a file
         // that no longer existed. The cleanup therefore must not depend on the DLL.
         var registry = Directives(Section("Registry"));
-        var script = Script();
 
-        // The section refers to the CLSIDs through the #define block rather than
-        // repeating the literals, so that the [Code] section cannot drift from it. The
-        // define values are checked here; the number of references is what proves both
-        // registry views are covered.
-        foreach (var (define, clsid) in new[]
-                 {
-                     ("ClsidMediaSource", MediaSourceClsid),
-                     ("ClsidDirectShow", DirectShowClsid),
-                 })
+        foreach (var clsid in new[] { MediaSourceClsid, DirectShowClsid })
         {
-            // Whitespace-tolerant: the defines are aligned for readability, so the
-            // number of spaces between the name and the value is not part of the
-            // contract.
-            var definePattern = $@"^#define {define}\s+""{Regex.Escape(clsid)}""";
-            Assert.True(
-                Regex.IsMatch(script, definePattern, RegexOptions.Multiline),
-                $"#define {define} 的值不是 {clsid}。");
+            // Spelled out rather than taken from a `{#define}`, and that is the point of
+            // this assertion. Inno reads `{` as the start of a constant, so a literal
+            // brace has to be doubled - but if the value came from a substitution, the
+            // brace that closes the substitution is the one that would have closed the
+            // GUID, leaving a different key path. The cleanup would then delete nothing
+            // and report nothing. Hard-coding the pair of keys is what keeps the braces
+            // unambiguous, and this count is what keeps the duplication honest.
+            var literal = "\\{{" + clsid + "}";
+            var uses = Regex.Matches(registry, Regex.Escape(literal)).Count;
 
-            var uses = Regex.Matches(registry, Regex.Escape($"{{#{define}}}")).Count;
-            Assert.True(uses >= 2, $"{define} 只覆盖了一个注册表视图（引用 {uses} 次）。");
+            Assert.True(uses == 2, $"[Registry] 里 {clsid} 出现了 {uses} 次，应为 2 次（两个注册表视图）。");
         }
 
         // dontcreatekey keeps Setup from creating the keys it is only there to remove;
