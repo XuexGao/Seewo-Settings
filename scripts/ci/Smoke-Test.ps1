@@ -808,6 +808,52 @@ foreach ($page in $pages) {
     }
 }
 
+# The 系统集成 card is the only place a portable copy can register its components or
+# undo them, and it sits far enough down the settings page that the screenshot above
+# does not show whether it rendered - the page scrolls, and the capture is of the top.
+#
+# Asserted by looking the controls up in the automation tree instead of by eye. The
+# card is inside a StackPanel, which a ScrollViewer does not virtualise, so every
+# control is in the tree whether or not it is scrolled into view; a card that failed
+# to render, or whose buttons lost their automation names, would not be.
+#
+# The loop above finishes on the settings page, which is why this runs here.
+Write-Step '设置页应有可用的「系统集成」卡片'
+
+# Re-acquired rather than reusing the reference from before the loop: the settings page
+# is the last one visited and a stale element makes every lookup below fail, which would
+# look exactly like a missing card.
+$window = Get-AppWindow -ProcessId $process.Id
+
+$integrationControls = @(
+    '注册到当前目录（需要管理员）'
+    '清除本程序对系统的所有改动'
+    '在桌面创建快捷方式'
+    '在开始菜单创建快捷方式'
+    '移除快捷方式'
+    '在「应用和功能」中显示/隐藏'
+)
+
+$missingIntegrationControls = @()
+
+if ($null -eq $window) {
+    Write-Fail '设置页检查时找不到应用窗口。'
+}
+else {
+    foreach ($integrationControl in $integrationControls) {
+        if ($null -eq (Find-ByName -Window $window -Name $integrationControl)) {
+            $missingIntegrationControls += $integrationControl
+        }
+    }
+}
+
+if ($null -ne $window -and $missingIntegrationControls.Count -gt 0) {
+    Write-Fail (@('设置页找不到「系统集成」的控件：'; ($missingIntegrationControls -join '、')) -join '')
+}
+else {
+    Write-Pass "「系统集成」卡片的 $($integrationControls.Count) 个按钮都在。"
+}
+
 # Also grab the whole desktop once, which shows the window in context and would
 # reveal anything the app drew outside its own window.
 Save-ScreenRegion -Path (Join-Path $OutputDirectory '08-full-desktop.png') `
