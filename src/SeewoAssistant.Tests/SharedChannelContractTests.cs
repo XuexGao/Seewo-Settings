@@ -123,10 +123,13 @@ public sealed class SharedChannelContractTests
 
         var text = File.ReadAllText(header!);
 
-        Assert.Equal(ReadNativeConstant(text, "kVcamSectionName"), FrameChannelContract.SectionName);
-        Assert.Equal(ReadNativeConstant(text, "kVcamLocalSectionName"), FrameChannelContract.LocalSectionName);
-        Assert.Equal(ReadNativeConstant(text, "kVcamDataEventName"), FrameChannelContract.DataEventName);
-        Assert.Equal(ReadNativeConstant(text, "kVcamLocalDataEventName"), FrameChannelContract.LocalDataEventName);
+        // The managed constant is the expected value and the header is the actual one, so
+        // a failure reads as "the header says X, we expected Y" - which is the direction
+        // that makes the mismatch obvious. xUnit2000 flags the reverse order.
+        Assert.Equal(FrameChannelContract.SectionName, ReadNativeConstant(text, "kVcamSectionName"));
+        Assert.Equal(FrameChannelContract.LocalSectionName, ReadNativeConstant(text, "kVcamLocalSectionName"));
+        Assert.Equal(FrameChannelContract.DataEventName, ReadNativeConstant(text, "kVcamDataEventName"));
+        Assert.Equal(FrameChannelContract.LocalDataEventName, ReadNativeConstant(text, "kVcamLocalDataEventName"));
     }
     [Fact]
     public void EveryChannelNameCarriesANamespacePrefix()

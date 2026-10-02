@@ -34,7 +34,7 @@ jobs:
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # The runner starts with no interactive desktop session for a service, but
       # the Actions runner does run in an interactive session, which is what makes
@@ -90,7 +90,7 @@ jobs:
       # produces no artifacts.
       - name: Download the release archive
         if: steps.resolve.outputs.skip != 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: SeewoAssistant-release
           path: artifacts/dist
@@ -132,7 +132,7 @@ jobs:
       # needed to work out why.
       - name: Upload the screenshots and logs
         if: always() && steps.resolve.outputs.skip != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ui-screenshots
           path: |

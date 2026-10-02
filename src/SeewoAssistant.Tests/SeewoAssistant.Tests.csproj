@@ -11,6 +11,13 @@
     <!-- The tests exercise pure logic, so they run on the CI Linux job too if
          needed; the Windows-only APIs are guarded at runtime. -->
     <NoWarn>$(NoWarn);CA1416</NoWarn>
+
+    <!-- A swapped Assert.Equal argument order still passes and still reads as though it
+         were right, so it hides exactly the contract mismatch these tests exist to catch.
+         The four contract assertions in SharedChannelContractTests had it, and the only
+         sign was an analyzer warning that nothing acted on. Promoted to an error so the
+         next one fails the build instead of being scrolled past. -->
+    <WarningsAsErrors>$(WarningsAsErrors);xUnit2000</WarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
