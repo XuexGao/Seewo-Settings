@@ -26,6 +26,149 @@ public abstract class ModulePageBase : Page
         {
             Services = services;
             OnServicesReady();
+            TryShowIntro();
+        }
+    }
+
+    // ------------------------------------------------------------------ intros
+
+    /// <summary>
+    /// Stable key for this page's one-time intro, or null for a page that has none.
+    /// </summary>
+    /// <remarks>
+    /// A key rather than the page type name: renaming a class would otherwise re-show
+    /// every intro, and the stored list has to survive refactoring.
+    /// </remarks>
+    protected virtual string? IntroKey => null;
+
+    /// <summary>Heading of the one-time intro, or null to show none.</summary>
+    protected virtual string? IntroTitle => null;
+
+    /// <summary>Body of the one-time intro.</summary>
+    protected virtual string? IntroBody => null;
+
+    /// <summary>
+    /// Shows this page's explanation the first time the page is opened.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The explanations used to sit permanently at the top of each page. That cost every
+    /// visit a paragraph of scrolling to reach the controls, and the same text was read
+    /// at most once. Moving it into a one-time dialog gives the page back to the things
+    /// the user actually came for, while still explaining the limitation before it is hit.
+    /// </para>
+    /// <para>
+    /// The "already seen" flag is recorded <em>before</em> the dialog is shown. If showing
+    /// it fails, the user loses the explanation once rather than being prompted on every
+    /// single visit, which is the worse of the two failures.
+    /// </para>
+    /// <para>
+    /// It also waits for <see cref="FrameworkElement.Loaded"/> rather than running
+    /// directly from <c>OnNavigatedTo</c>. A <see cref="ContentDialog"/> needs a
+    /// <c>XamlRoot</c>, and during navigation the page is not in the tree yet, so
+    /// <c>ShowAsync</c> throws and — with the flag already recorded — the explanation
+    /// would be silently lost. Loaded is the first point where it is reliably available.
+    /// </para>
+    /// </remarks>
+    private void TryShowIntro()
+    {
+        if (IntroKey is null || IntroTitle is null || IntroBody is null)
+        {
+            return;
+        }
+
+        if (!Services.Settings.ShowPageIntros || Services.Settings.SeenPageIntros.Contains(IntroKey))
+        {
+            return;
+        }
+
+        // One-shot: without this the handler would fire again on every re-entry to the
+        // visual tree and try to show a second dialog.
+        void OnLoaded(object sender, RoutedEventArgs args)
+        {
+            Loaded -= OnLoaded;
+            _ = ShowIntroOnceAsync();
+        }
+
+        Loaded += OnLoaded;
+    }
+
+    /// <summary>Records the intro as seen and shows it.</summary>
+    private async Task ShowIntroOnceAsync()
+    {
+        if (IntroKey is null || IntroTitle is null || IntroBody is null)
+        {
+            return;
+        }
+
+        // Re-check: the page may have been opened twice in quick succession, or the
+        // explanation may have been reset from the settings page in between.
+        if (Services.Settings.SeenPageIntros.Contains(IntroKey))
+        {
+            return;
+        }
+
+        Services.Settings.SeenPageIntros.Add(IntroKey);
+        Services.SaveSettings();
+
+        await ShowIntroAsync(IntroTitle, IntroBody);
+    }
+
+    /// <summary>Shows a one-time explanation.</summary>
+    /// <remarks>
+    /// The close button says「知道了」rather than the generic「关闭」or「取消」. The automated
+    /// smoke test dismisses these dialogs by button name, and several pages have real
+    /// buttons labelled「取消」/「确定」that the sweep is explicitly told not to click
+    /// because they rewrite configuration. A dismissal helper matching those names would
+    /// press exactly the controls the test avoids, so this dialog carries a label no page
+    /// button uses.
+    /// </remarks>
+    private async Task ShowIntroAsync(string title, string message)
+    {
+        if (!await _dialogGate.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        try
+        {
+            var body = new StackPanel { Spacing = 12 };
+            body.Children.Add(new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap });
+
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = body,
+                CloseButtonText = "知道了",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = XamlRoot,
+            };
+
+            // A way back to the explanation after dismissing it, so "once" does not mean
+            // "gone for good" for someone who clicked past it too quickly.
+            var again = new HyperlinkButton { Content = "以后可以在「设置」里重新显示这些说明" };
+            again.Click += (_, _) =>
+            {
+                Services.Settings.SeenPageIntros.Remove(IntroKey);
+                Services.SaveSettings();
+                dialog.Hide();
+                Report("已重置当前页面的说明。下次进入时会重新显示。");
+            };
+
+            body.Children.Add(again);
+
+            await dialog.ShowAsync();
+        }
+        catch (Exception ex)
+        {
+            // Navigation during startup can race the XamlRoot becoming available. The
+            // key is already recorded, so a failure here costs the user the explanation
+            // once rather than re-prompting on every visit.
+            System.Diagnostics.Debug.WriteLine($"ShowIntroAsync failed: {ex.Message}");
+        }
+        finally
+        {
+            _dialogGate.Release();
         }
     }
 

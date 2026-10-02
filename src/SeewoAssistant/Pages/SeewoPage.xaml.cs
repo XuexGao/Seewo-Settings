@@ -36,6 +36,26 @@ public sealed partial class SeewoPage : ModulePageBase
         NewRuleKindCombo.SelectedIndex = 0;
     }
 
+    // ------------------------------------------------------------------ intro
+
+    protected override string? IntroKey => "seewo";
+
+    protected override string? IntroTitle => "希沃软件";
+
+    protected override string? IntroBody =>
+        """
+找出这台机器上的希沃软件，然后决定怎么处置它：挂起、结束、断网、关掉开机自启。
+
+扫描结果来自三个地方——卸载注册表、正在运行的进程、以及常见安装目录，
+所以改名换版本的希沃组件基本都能认出来，不靠一份写死的名单。
+
+右边这些操作里，**只有「挂起」是随时能后悔的**：进程被冻住，但数据不丢，
+点「恢复」就回来了。结束进程和断网都是立刻生效的改动，
+防火墙规则可以一键全部移除，但已经在内存里的数据救不回来。
+
+一半的功能需要管理员权限，上面那行会告诉你当前有没有。
+""";
+
     protected override void OnServicesReady()
     {
         UpdatePermissionState();

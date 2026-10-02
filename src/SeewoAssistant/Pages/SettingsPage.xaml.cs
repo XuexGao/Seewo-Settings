@@ -39,7 +39,28 @@ public sealed partial class SettingsPage : ModulePageBase
 
         CaptureModeCombo.Items.Add("穿透隐身（截图中完全不出现）");
         CaptureModeCombo.Items.Add("黑块遮蔽（截图中显示为黑块）");
+
+        ThemeCombo.Items.Add("跟随系统");
+        ThemeCombo.Items.Add("浅色");
+        ThemeCombo.Items.Add("深色");
     }
+
+    // ------------------------------------------------------------------ intro
+
+    protected override string? IntroKey => "settings";
+
+    protected override string? IntroTitle => "设置";
+
+    protected override string? IntroBody =>
+        """
+这里的改动基本都会立刻生效，也会立刻存盘，不需要点保存。
+
+「常规」是关闭窗口的行为、开机自启、外观主题。
+往下是各模块的默认值——它们是程序启动时、以及托盘快捷开关使用的值，
+改了不影响当前正在运行的推流或监控。
+
+最底下一块是配置文件的位置，以及出问题时的重置入口。
+""";
 
     protected override void OnServicesReady()
     {
@@ -76,7 +97,26 @@ public sealed partial class SettingsPage : ModulePageBase
 
         RunAtStartupToggle.IsOn = settings.RunAtStartup;
         StartMinimizedToggle.IsOn = settings.StartMinimized;
-        FollowSystemThemeToggle.IsOn = settings.FollowSystemTheme;
+
+        ThemeCombo.SelectedIndex = settings.Theme switch
+        {
+            AppTheme.Light => 1,
+            AppTheme.Dark => 2,
+            _ => 0,
+        };
+
+        // Say where a migrated value came from, so a light theme on a light-looking
+        // machine is not mistaken for the switch being broken.
+        ThemeHint.Text = settings.ThemeMigratedFromLegacyKey
+            ? "已沿用旧版设置（原先关闭了「跟随系统主题」，因此固定为浅色）。随时可以改。"
+            : settings.Theme switch
+            {
+                AppTheme.System => "跟随 Windows 的浅色/深色设置，系统切换时界面会一起变。",
+                AppTheme.Light => "始终使用浅色外观，不随系统变化。",
+                _ => "始终使用深色外观，不随系统变化。",
+            };
+
+        ShowPageIntrosToggle.IsOn = settings.ShowPageIntros;
 
         SelectCombo(DefaultResolutionCombo, $"{settings.VirtualCameraWidth}×{settings.VirtualCameraHeight}");
         SelectCombo(DefaultFpsCombo, $"{settings.VirtualCameraFps} fps");
@@ -175,6 +215,64 @@ public sealed partial class SettingsPage : ModulePageBase
         UpdateCrossProcessInfo();
     }
 
+    // ------------------------------------------------------------------ theme
+
+    /// <summary>
+    /// Applies a new theme the moment it is picked, then saves it.
+    /// </summary>
+    /// <remarks>
+    /// Applied immediately rather than on the page's usual deferred save, because the
+    /// whole point of a theme picker is to see the result as you choose. Saving at the
+    /// same time is what makes it survive a restart — the retired title-bar button
+    /// changed the live tree and persisted nothing.
+    /// </remarks>
+    private void OnThemeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSettingWrites)
+        {
+            return;
+        }
+
+        Services.Settings.Theme = ThemeCombo.SelectedIndex switch
+        {
+            1 => AppTheme.Light,
+            2 => AppTheme.Dark,
+            _ => AppTheme.System,
+        };
+
+        Services.Settings.ThemeMigratedFromLegacyKey = false;
+        Services.ApplyTheme();
+        Services.SaveSettings();
+
+        // Re-read through the normal path so the hint and the combo agree, and so the
+        // page's deferred CollectFromControls cannot write the pre-change value back over
+        // this on the next navigation.
+        PopulateFromSettings();
+    }
+
+    /// <summary>
+    /// Clears the record of shown explanations so they appear again.
+    /// </summary>
+    /// <remarks>
+    /// This is what makes the one-time intros safe to dismiss: the explanation is still
+    /// recoverable from a known place, rather than being gone for good once the dialog is
+    /// closed. It also turns the feature back on, because clearing the list while the
+    /// feature is off would appear to do nothing.
+    /// </remarks>
+    private void OnReplayIntros(object sender, RoutedEventArgs e)
+    {
+        Services.Settings.SeenPageIntros.Clear();
+        Services.Settings.ShowPageIntros = true;
+
+        _suppressSettingWrites = true;
+        ShowPageIntrosToggle.IsOn = true;
+        _suppressSettingWrites = false;
+
+        Services.SaveSettings();
+
+        Report("已重置。下次进入各页面时会重新显示说明。");
+    }
+
     // ------------------------------------------------------------------ exclusions
 
     private void OnAddExclusion(object sender, RoutedEventArgs e)
@@ -245,7 +343,18 @@ public sealed partial class SettingsPage : ModulePageBase
 
         settings.RunAtStartup = RunAtStartupToggle.IsOn;
         settings.StartMinimized = StartMinimizedToggle.IsOn;
-        settings.FollowSystemTheme = FollowSystemThemeToggle.IsOn;
+
+        settings.Theme = ThemeCombo.SelectedIndex switch
+        {
+            1 => AppTheme.Light,
+            2 => AppTheme.Dark,
+            _ => AppTheme.System,
+        };
+
+        // The choice has now been made here, so the migration note no longer applies.
+        settings.ThemeMigratedFromLegacyKey = false;
+
+        settings.ShowPageIntros = ShowPageIntrosToggle.IsOn;
 
         if (DefaultResolutionCombo.SelectedItem is string resolution)
         {

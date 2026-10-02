@@ -534,11 +534,161 @@ jobs:
 
           Get-ChildItem artifacts/dist | Select-Object Name, Length | Format-Table -AutoSize
 
+      # ------------------------------------------------------------------ installer
+      # A second way to distribute the *same* assembled release tree. The zip is
+      # still the primary artifact - it is what "解压即用" means and what the smoke
+      # test in test.yml consumes - so this step must never be able to take the
+      # zip down with it. It is therefore continue-on-error, and the step below
+      # decides purely from the file on disk what actually reaches the Release.
+      #
+      # The installer is worth having because the zip cannot offer the two things
+      # a Windows user expects: choosing where the program goes, and deciding
+      # which shortcuts to create.
+      - name: Build the installer (Inno Setup)
+        id: build_installer
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if (-not (Test-Path 'installer/SeewoAssistant.iss')) {
+            Write-Error '缺少 installer/SeewoAssistant.iss，无法编译安装包。'
+            exit 1
+          }
+
+          # The Chocolatey package id is `innosetup`; it installs Inno Setup 6 and
+          # puts a shim for ISCC.exe on PATH. --no-progress keeps the log readable.
+          choco install innosetup -y --no-progress
+
+          # The shim lands on PATH, but a shell that is already running - and the
+          # runner's pwsh is - may not observe the refreshed PATH. Fall back to the
+          # well-known install location instead of failing on an environment quirk.
+          $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+
+          if (-not $iscc) {
+            $candidates = @(
+              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+              "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+            )
+            $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+
+          if (-not $iscc) {
+            Write-Error '安装 Inno Setup 之后仍然找不到 ISCC.exe。'
+            exit 1
+          }
+
+          Write-Host "使用编译器：$iscc"
+
+          # On a tag push the version comes from the tag with its leading "v"
+          # stripped, because AppVersion has to be a plain version number and the
+          # installer should match the Release it is attached to. Every other
+          # build leaves the script's own default in place.
+          $version = '0.0.0'
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $version = '${{ github.ref_name }}'.TrimStart('v')
+          }
+
+          # AppVersion may carry a prerelease suffix ("1.2.3-rc1"), but Inno Setup's
+          # VersionInfoVersion directive accepts only up to four dot-separated
+          # numbers, and passing it a suffix fails the compile. The numeric part is
+          # therefore extracted here and passed as a second define.
+          $numeric = $version
+          if ($numeric -match '^(\d+(?:\.\d+){0,3})') {
+            $numeric = $Matches[1]
+          } else {
+            $numeric = '0.0.0'
+          }
+
+          Write-Host "安装包版本：$version（版本号字段：$numeric）"
+
+          New-Item -ItemType Directory -Force -Path 'artifacts/dist' | Out-Null
+
+          & $iscc 'installer/SeewoAssistant.iss' "/DAppVersion=$version" "/DAppVersionNumeric=$numeric"
+          $compileExit = $LASTEXITCODE
+          Write-Host "ISCC 退出码：$compileExit"
+
+          # The exit code alone is not trusted: what this step exists to produce is
+          # a file. A compiler that returned 0 without emitting anything would be
+          # recorded as a success and put a Release out with a missing asset.
+          $installer = 'artifacts/dist/SeewoAssistant-Setup-x64.exe'
+
+          if (-not (Test-Path $installer)) {
+            Write-Error "ISCC 以退出码 $compileExit 结束，但没有产出 $installer"
+            exit 1
+          }
+
+          if ($compileExit -ne 0) {
+            Write-Error "ISCC 报告失败（退出码 $compileExit），却产出了 $installer，产物不可信"
+            exit 1
+          }
+
+          $size = (Get-Item $installer).Length
+          Write-Host "安装包已生成：$installer ($size 字节)" -ForegroundColor Green
+
+      # The zip is always published; the installer only when it was actually
+      # produced. Reading the file rather than the previous step's outcome is what
+      # keeps "Inno Setup was unavailable" and "compilation failed" from either
+      # failing the build or sneaking a missing asset into the Release.
+      - name: Record whether the installer was built
+        id: installer_status
+        shell: pwsh
+        run: |
+          $installer = 'artifacts/dist/SeewoAssistant-Setup-x64.exe'
+
+          $files = @(
+            'artifacts/dist/SeewoAssistant-win-x64.zip',
+            'artifacts/dist/SeewoAssistant-native-components.zip'
+          )
+
+          if (Test-Path $installer) {
+            $sizeMb = [math]::Round((Get-Item $installer).Length / 1MB, 1)
+            Write-Host "安装包：已生成（$sizeMb MB）" -ForegroundColor Green
+            "安装包（exe）：已生成（$sizeMb MB）" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            $files += $installer
+
+            # The release notes must not promise an asset that is not attached, so
+            # the paragraph describing the installer is built here, from the same
+            # file existence check, rather than hard-coded in the release step.
+            $installerNote = @(
+              '**方式一：安装程序（推荐）**',
+              '',
+              '下载 `SeewoAssistant-Setup-x64.exe` 运行，可以自选安装目录，并勾选是否创建',
+              '桌面快捷方式和开始菜单快捷方式。安装程序默认按「所有用户」安装，需要管理员',
+              '权限；在安装模式对话框里也可以改为「仅为我安装」，那样不需要管理员权限。',
+              '卸载请使用「设置 → 应用」或安装目录下的 `unins000.exe`。'
+            ) -join "`n"
+          } else {
+            Write-Host '安装包：未生成，本次只发布 zip。' -ForegroundColor Yellow
+            "安装包（exe）：未生成（Inno Setup 不可用或编译失败），本次只发布 zip" |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+            $installerNote = @(
+              '**方式一：安装程序**',
+              '',
+              '本次构建没有生成安装程序，请使用下方的 `SeewoAssistant-win-x64.zip`。'
+            ) -join "`n"
+          }
+
+          # Multi-line outputs, so the release step uses exactly the assets that
+          # exist rather than a glob that might match nothing.
+          "release_files<<__RELEASE_FILES__" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $files | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "__RELEASE_FILES__" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+          "installer_note<<__INSTALLER_NOTE__" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $installerNote | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "__INSTALLER_NOTE__" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
       - name: Upload the release archives
         uses: actions/upload-artifact@v6
         with:
           name: SeewoAssistant-release
-          path: artifacts/dist/*.zip
+          # Everything in artifacts/dist: the two zips, plus the installer when it
+          # was produced. A single glob is used deliberately - the zips are always
+          # there, so this can never match nothing and turn a missing installer
+          # into a failed upload of the primary artifact.
+          path: artifacts/dist/*
           if-no-files-found: error
           retention-days: 30
 
@@ -549,15 +699,28 @@ jobs:
       # on the release step succeeding. Release notes are supplied explicitly
       # rather than generated, because generating them needs an extra API call and
       # permission that a tag push does not always carry.
+      #
+      # The asset list comes from the step above so the installer is attached only
+      # when it was really produced; a wildcard would silently attach whatever
+      # happened to be on disk.
       - name: Create a GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
-          files: artifacts/dist/*.zip
+          files: ${{ steps.installer_status.outputs.release_files }}
           name: 希沃助手 ${{ github.ref_name }}
           body: |
-            从下方 Assets 下载 `SeewoAssistant-win-x64.zip`，解压后双击
-            `SeewoAssistant.exe` 即可运行，无需安装 .NET 运行时或 Windows App SDK 运行时。
+            发行版提供两种安装方式。
+
+            ${{ steps.installer_status.outputs.installer_note }}
+
+            **方式二：解压即用**
+
+            下载 `SeewoAssistant-win-x64.zip`，解压到任意目录，双击 `SeewoAssistant.exe`
+            即可运行，无需安装。
+
+            两种方式的内容完全相同，都不需要安装 .NET 运行时、Windows App SDK 运行时
+            或 VC++ 可再发行组件。
 
             首次使用虚拟摄像头需要以管理员身份运行 `scripts\Install-Native.ps1 -Action Install`
             注册原生组件。详见压缩包内的 README.md。

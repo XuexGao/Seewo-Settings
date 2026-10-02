@@ -15,22 +15,16 @@
 
             <TextBlock Text="防截屏保护" Style="{StaticResource PageTitleStyle}" />
             <TextBlock Style="{StaticResource PageSubtitleStyle}"
-                       Text="让受保护的窗口不出现在截图、录屏和屏幕共享里。适合用来遮住聊天窗口、密码框或任何不该被录进去的内容。" />
+                       Text="让选中的窗口不出现在截图、录屏和屏幕共享里。" />
 
-            <!-- The single most important thing to understand about this module is its
-                 hard limit, so it comes before any control rather than after them. -->
+            <!-- The hard limit stays on the page, because it decides which of the two
+                 buttons below will work. Why it works that way is in the one-time intro. -->
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="12">
-                    <TextBlock Text="请先了解这个限制" Style="{StaticResource CardTitleStyle}" />
+                    <TextBlock Text="先知道这个限制" Style="{StaticResource CardTitleStyle}" />
 
                     <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="系统接口 SetWindowDisplayAffinity 有个硬性限制：只能保护调用者自己的窗口。这是 Windows 定的，不是我们偷懒。" />
-
-                    <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="所以保护这个工具自己的窗口永远能成功；想保护别的程序（微信、浏览器等），就得先往对方进程里写入一小段机器码，让它自己去调这个接口。" />
-
-                    <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="跨进程默认关着，要你在这里手动打开。开了也可能失败：杀软会拦，部分系统进程不让写，权限比它高的进程就算写进去了也调不动。" />
+                               Text="Windows 只允许程序保护自己的窗口。所以要保护别的程序，得先打开「跨进程」，让一小段代码写进对方进程替它调用接口。" />
 
                     <InfoBar IsOpen="True"
                              IsClosable="False"

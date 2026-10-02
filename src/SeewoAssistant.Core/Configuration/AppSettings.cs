@@ -20,6 +20,35 @@ public enum CloseBehavior
     Exit,
 }
 
+/// <summary>
+/// Which appearance the window uses.
+/// </summary>
+/// <remarks>
+/// <para>
+/// This replaces an earlier <c>FollowSystemTheme</c> boolean, which was only ever written
+/// and never applied: the settings page saved it and nothing read it back, so the switch
+/// did nothing at all. A boolean also cannot express the three states a theme picker
+/// needs, which is why the title-bar button had to cycle blindly between light and dark
+/// instead of offering "follow the system".
+/// </para>
+/// <para>
+/// The stored name <c>Light</c> is deliberate: an older file has
+/// <c>followSystemTheme: false</c>, and reading that as "light" preserves what the old
+/// switch claimed. See <c>AppSettings.Migrate</c>.
+/// </para>
+/// </remarks>
+public enum AppTheme
+{
+    /// <summary>Follow the Windows app theme, and react when it changes.</summary>
+    System,
+
+    /// <summary>Always use the light appearance.</summary>
+    Light,
+
+    /// <summary>Always use the dark appearance.</summary>
+    Dark,
+}
+
 /// <summary>The complete persisted application state.</summary>
 public sealed class AppSettings
 {
@@ -37,8 +66,35 @@ public sealed class AppSettings
     /// <summary>Start the app minimised to the tray.</summary>
     public bool StartMinimized { get; set; }
 
-    /// <summary>Follow the Windows light/dark theme instead of forcing light.</summary>
-    public bool FollowSystemTheme { get; set; } = true;
+    /// <summary>Which appearance the window uses.</summary>
+    public AppTheme Theme { get; set; } = AppTheme.System;
+
+    /// <summary>
+    /// Whether each page shows its explanation the first time it is opened.
+    /// </summary>
+    /// <remarks>
+    /// The explanations are useful once and cost a paragraph of scrolling on every later
+    /// visit. Turning this off keeps them out of the way entirely; a page can always be
+    /// asked for its explanation again from the settings page, which is what makes this
+    /// safe to switch off.
+    /// </remarks>
+    public bool ShowPageIntros { get; set; } = true;
+
+    /// <summary>
+    /// Intro keys already shown, so each explanation appears only once.
+    /// </summary>
+    /// <remarks>
+    /// Stored keys rather than per-page booleans: adding a page then needs no new field,
+    /// and an unrecognised key is simply ignored.
+    /// </remarks>
+    public List<string> SeenPageIntros { get; set; } = [];
+
+    /// <summary>
+    /// Set when the old <c>followSystemTheme</c> key was present, so the value above came
+    /// from the migration rather than from a choice the user made here.
+    /// </summary>
+    [JsonIgnore]
+    public bool ThemeMigratedFromLegacyKey { get; set; }
 
     // ---------------------------------------------------------------- module 1
 
@@ -202,6 +258,56 @@ public sealed class SettingsStore
     /// <summary>Full path of the settings file.</summary>
     public string FilePath { get; }
 
+    /// <summary>
+    /// Maps the retired <c>followSystemTheme</c> boolean onto <see cref="AppTheme"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The old key has to be read out of the raw JSON rather than a property, because the
+    /// property is gone: with it removed, an existing file's <c>followSystemTheme</c> is
+    /// simply ignored, and every user who had chosen"不跟随"would silently be reset to
+    /// following the system.
+    /// </para>
+    /// <para>
+    /// Only a <em>false</em> value changes anything. <c>true</c> already means "follow the
+    /// system", which is the new default, so there is nothing to carry over.
+    /// </para>
+    /// <para>
+    /// An explicit <c>theme</c> in the same file wins. A file can carry both keys if it
+    /// was written by a build between the two schemas, and in that case the newer key is
+    /// the current statement of intent — letting the stale boolean override it would pin
+    /// the theme permanently.
+    /// </para>
+    /// </remarks>
+    private static void MigrateLegacyTheme(string json, AppSettings settings)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+
+            if (document.RootElement.TryGetProperty("theme", out _))
+            {
+                return;
+            }
+
+            if (!document.RootElement.TryGetProperty("followSystemTheme", out var legacy))
+            {
+                return;
+            }
+
+            if (legacy.ValueKind == JsonValueKind.False)
+            {
+                settings.Theme = AppTheme.Light;
+                settings.ThemeMigratedFromLegacyKey = true;
+            }
+        }
+        catch (JsonException)
+        {
+            // A malformed document is handled by the caller, which moves the file aside.
+            // Nothing to migrate, and the defaults already say "follow the system".
+        }
+    }
+
     /// <summary>Loads settings, falling back to defaults when none exist or the file is unreadable.</summary>
     public AppSettings Load()
     {
@@ -222,6 +328,8 @@ public sealed class SettingsStore
                 {
                     throw new JsonException("配置文件反序列化结果为空。");
                 }
+
+                MigrateLegacyTheme(json, settings);
 
                 _logger.Info($"Loaded settings from {FilePath}.");
                 return settings;

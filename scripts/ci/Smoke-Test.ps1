@@ -322,6 +322,53 @@ function Invoke-NavigationItem {
     }
 }
 
+# Dismisses any modal dialog the app has opened, so the sweep can continue.
+#
+# The pages now show a one-time explanation as a ContentDialog on first open. That
+# dialog is modal and covers the page, so every later lookup would fail and the sweep
+# would report a page full of missing controls - a false failure caused by the test
+# not knowing about a legitimate feature.
+#
+# A WinUI ContentDialog is hosted in the app's own window rather than as a separate
+# top-level window, so it is found by walking the app window for its dismissal button.
+#
+# ONLY the intro dialog's own label is matched. An earlier version of this helper also
+# matched generic labels like '取消' and '确定' - which are real buttons on the capture
+# and schedule pages, and are on the sweep's do-not-click list precisely because they
+# rewrite host configuration. Dismissing a dialog must never mean pressing those.
+function Close-AppDialogs {
+    param(
+        [System.Windows.Automation.AutomationElement]$Window,
+        [int]$Rounds = 3
+    )
+
+    $dismissLabels = @('知道了')
+
+    for ($round = 0; $round -lt $Rounds; $round++) {
+        $closed = $false
+
+        foreach ($label in $dismissLabels) {
+            $button = Find-ByName -Window $Window -Name $label
+
+            if ($null -eq $button) { continue }
+
+            try {
+                $invoke = $button.GetCurrentPattern(
+                    [System.Windows.Automation.InvokePattern]::Pattern)
+                $invoke.Invoke()
+                $closed = $true
+                Start-Sleep -Milliseconds 200
+                break
+            }
+            catch {
+                # Not an invokable control, or it vanished between the two calls.
+            }
+        }
+
+        if (-not $closed) { return }
+    }
+}
+
 # Finds a single element by its automation id.
 #
 # WinUI sets AutomationId from x:Name, so this is a stable handle that does not depend
@@ -692,6 +739,10 @@ $capturedCount = 0
 foreach ($page in $pages) {
     $path = Join-Path $OutputDirectory $page.File
 
+    # Dismiss first: the first page's intro opens during launch, before this loop runs,
+    # and a modal dialog blocks the navigation click below.
+    Close-AppDialogs -Window $window
+
     $navigated = Invoke-NavigationItem -Window $window -Name $page.Name
 
     if (-not $navigated) {
@@ -699,8 +750,12 @@ foreach ($page in $pages) {
         continue
     }
 
-    # Let the page load, run OnServicesReady and render before capturing.
+    # Let the page load, run OnServicesReady and render before capturing. A page that
+    # shows its one-time explanation opens a modal dialog here, which would otherwise be
+    # what the screenshot captured instead of the page.
     Start-Sleep -Seconds 3
+    Close-AppDialogs -Window $window
+    Start-Sleep -Milliseconds 500
 
     # Re-acquire the window handle: the previous page may have been replaced.
     try {
@@ -1049,12 +1104,22 @@ foreach ($entry in $interactionPlan) {
         break
     }
 
+    # Same reason as the screenshot pass: a modal dialog left over from the previous
+    # page would swallow this click.
+    Close-AppDialogs -Window $window
+
     if (-not (Invoke-NavigationItem -Window $window -Name $entry.Page)) {
         Write-Fail "找不到导航项「$($entry.Page)」（窗口可能被其他窗口遮挡）。"
         continue
     }
 
     Start-Sleep -Seconds 2
+
+    # The page's one-time explanation opens here on its first visit. Dismiss it before
+    # the sweep, or the modal dialog swallows every click and the page reports a full
+    # set of unreachable controls.
+    Close-AppDialogs -Window $window
+    Start-Sleep -Milliseconds 300
 
     # Work from a list of names and re-query each control immediately before clicking
     # it, rather than holding a collection of elements. Scrolling to reach one control

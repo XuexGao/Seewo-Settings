@@ -28,6 +28,26 @@ public sealed partial class PrivacyPage : ModulePageBase
         ActivityList.ItemsSource = _activity;
     }
 
+    // ------------------------------------------------------------------ intro
+
+    protected override string? IntroKey => "privacy";
+
+    protected override string? IntroTitle => "隐私监控";
+
+    protected override string? IntroBody =>
+        """
+盯着摄像头和麦克风，谁在用就提醒你。
+它看的不是画面也不是声音，而是 Windows 自己的那份使用记录——
+哪个程序、什么时候、用的摄像头还是麦克风。所以它不会录下任何东西。
+
+提醒有四种，可以随便组合：系统通知、屏幕上的醒目横幅、提示音，还有集中记录。
+建议至少开着横幅：摄像头和麦克风提醒是那种"漏掉就白装"的消息，
+而系统通知会被「专注助手」或游戏模式压掉，横幅不会。
+
+如果上面显示「尚未找到系统记录」，不是坏了。Windows 要等某个程序第一次
+真的用过摄像头或麦克风之后，才会写下第一笔记录。用一次就有了。
+""";
+
     protected override void OnServicesReady()
     {
         _suppressSettingWrites = true;

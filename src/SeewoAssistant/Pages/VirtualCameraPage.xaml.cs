@@ -18,6 +18,26 @@ public sealed partial class VirtualCameraPage : ModulePageBase
         InitializeComponent();
     }
 
+    // ------------------------------------------------------------------ intro
+
+    protected override string? IntroKey => "camera";
+
+    protected override string? IntroTitle => "虚拟摄像头";
+
+    protected override string? IntroBody =>
+        """
+给系统装一个"假的"摄像头，名字就叫「SeewoAssistant Virtual Camera」。
+装好以后，微信、钉钉、腾讯会议、OBS 这些软件的摄像头下拉框里就能选到它，
+选上之后对方看到的画面由这个程序决定，而不是你真实的摄像头。
+
+具体怎么用，看这一页的「选择分辨率」和「选择颜色 / 图片」两块：挑好画面，
+点「开始推流」，再去别的软件里选这个摄像头就行。
+
+两个前提说在前面：Windows 10 和 Windows 11 走的是两套完全不同的实现，
+装之前先看上面那行「系统支持情况」；装完第一次用可能需要重启一下目标软件，
+它才会重新读取设备列表。
+""";
+
     protected override void OnServicesReady()
     {
         _suppressSettingWrites = true;

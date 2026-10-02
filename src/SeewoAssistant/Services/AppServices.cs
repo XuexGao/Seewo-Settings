@@ -113,6 +113,20 @@ public sealed class AppServices : IAsyncDisposable
     /// </remarks>
     public string? CurrentPage { get; set; }
 
+    /// <summary>
+    /// Applies a theme to the live window, supplied by the shell once it exists.
+    /// </summary>
+    /// <remarks>
+    /// A callback rather than a reference: the theme is a property of the window, and
+    /// <c>Core</c> must not know about WinUI. The shell assigns this during startup and
+    /// the settings page calls <see cref="ApplyTheme"/>, so the page never has to reach
+    /// for a parent window by walking the visual tree.
+    /// </remarks>
+    public Action<AppTheme>? ThemeApplier { get; set; }
+
+    /// <summary>Applies <see cref="AppSettings.Theme"/> to the window.</summary>
+    public void ApplyTheme() => ThemeApplier?.Invoke(Settings.Theme);
+
     public void Report(string message, StatusSeverity severity = StatusSeverity.Informational) =>
         StatusReported?.Invoke(this, new StatusMessage(message, severity, CurrentPage));
 

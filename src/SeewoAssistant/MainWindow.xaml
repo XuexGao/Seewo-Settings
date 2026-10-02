@@ -43,26 +43,10 @@
                        TextTrimming="CharacterEllipsis"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
 
-            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button x:Name="ThemeButton"
-                        Click="OnToggleTheme"
-                        ToolTipService.ToolTip="切换深色/浅色主题"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Padding="8"
-                        AutomationProperties.Name="切换深色/浅色主题">
-                    <FontIcon x:Name="ThemeIcon" Glyph="&#xE706;" FontSize="14" />
-                </Button>
-                <Button x:Name="SettingsButton"
-                        Click="OnOpenSettings"
-                        ToolTipService.ToolTip="设置"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Padding="8"
-                        AutomationProperties.Name="设置">
-                    <FontIcon Glyph="&#xE713;" FontSize="14" />
-                </Button>
-            </StackPanel>
+            <!-- No settings or theme buttons here. The settings page is one click away in
+                 the navigation pane, so a second entry point was duplicate, and in
+                 full screen the window buttons overlay this corner and covered them. Both
+                 live on the settings page now, where nothing can overlap them. -->
         </Grid>
 
         <!-- Side navigation. Each item is one of the five modules. -->

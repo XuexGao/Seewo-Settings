@@ -46,7 +46,7 @@
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="12">
                     <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="首次使用需要把媒体源组件注册到系统，然后创建摄像头实例。注册需要管理员权限；创建实例不需要。" />
+                               Text="首次使用要先注册媒体源，再创建摄像头实例。注册需要管理员权限，创建实例不用。" />
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="InstallButton" Click="OnInstall" Style="{StaticResource AccentButtonStyle}"

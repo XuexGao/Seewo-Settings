@@ -69,6 +69,25 @@ public sealed partial class MainWindow : Window
         // Navigate to the first module.
         ContentFrame.Navigate(typeof(VirtualCameraPage), _services);
 
+        // Let the settings page change the theme without reaching for this window.
+        _services.ThemeApplier = ApplyTheme;
+
+        // Apply the stored choice now. Previously the theme was only ever set by the
+        // title-bar button, so it reset on every launch; this is what makes the setting
+        // on the settings page actually mean something across restarts.
+        ApplyTheme(_services.Settings.Theme);
+
+        // Follow a Windows theme change while "跟随系统" is selected. The root's
+        // RequestedTheme is ElementTheme.Default in that case, which is what lets
+        // ActualTheme report the system value and change when Windows does.
+        RootGrid.ActualThemeChanged += (_, _) =>
+        {
+            if (_services.Settings.Theme == AppTheme.System)
+            {
+                ApplyCaptionButtonColors(AppTheme.System);
+            }
+        };
+
         Closed += OnClosed;
         UpdateElevationBadge();
         UpdateStatusBar();
@@ -193,31 +212,90 @@ public sealed partial class MainWindow : Window
         _services.CurrentPage = tag;
     }
 
-    private void OnOpenSettings(object sender, RoutedEventArgs e)
-    {
-        Nav.SelectedItem = Nav.MenuItems
-            .OfType<NavigationViewItem>()
-            .FirstOrDefault(i => (i.Tag as string) == "settings");
-    }
-
     // ------------------------------------------------------------------ theme
 
-    private void OnToggleTheme(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Applies a stored <see cref="AppTheme"/> to the window.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The theme moved here from the retired title-bar button. Two things changed beyond
+    /// the location. First, the choice now survives a restart: the old button only set
+    /// <c>RequestedTheme</c> on the live tree and persisted nothing, so every launch came
+    /// back to the system default. Second, there are three states rather than two, so
+    /// "follow the system" is reachable — the old button could only alternate light and
+    /// dark and gave no way back to following Windows.
+    /// </para>
+    /// <para>
+    /// <see cref="ElementTheme.Default"/> is what "follow the system" means in WinUI: the
+    /// element inherits whatever the framework resolved. Clearing the requested theme on
+    /// the root is therefore the correct way to follow, rather than reading the current
+    /// system theme and freezing it.
+    /// </para>
+    /// </remarks>
+    public void ApplyTheme(AppTheme theme)
     {
-        // Cycling through three states rather than toggling two keeps the "follow
-        // the system" option reachable from the button.
-        var current = RootGrid.ActualTheme;
-        var next = current == ElementTheme.Light ? ElementTheme.Dark : ElementTheme.Light;
+        var requested = theme switch
+        {
+            AppTheme.Light => ElementTheme.Light,
+            AppTheme.Dark => ElementTheme.Dark,
+            _ => ElementTheme.Default,
+        };
 
+        // Set it on the frame's current page as well as on the root. The page is created
+        // by the Frame navigator and already exists when the theme changes, so setting
+        // only the root would leave the visible page on its previous appearance until the
+        // user navigated away and back.
         if (ContentFrame.Content is FrameworkElement page)
         {
-            page.RequestedTheme = next;
+            page.RequestedTheme = requested;
         }
 
-        RootGrid.RequestedTheme = next;
-        ThemeIcon.Glyph = next == ElementTheme.Dark ? "\uE708" : "\uE706";
+        RootGrid.RequestedTheme = requested;
 
-        _services.Report(next == ElementTheme.Dark ? "已切换到深色主题。" : "已切换到浅色主题。");
+        ApplyCaptionButtonColors(theme);
+    }
+
+    /// <summary>
+    /// Keeps the window's caption buttons legible against the chosen appearance.
+    /// </summary>
+    /// <remarks>
+    /// With <c>ExtendsContentIntoTitleBar</c> the minimise/maximise/close glyphs are drawn
+    /// by the system on top of our content. Their default colour follows the system theme,
+    /// so forcing dark while Windows is light left dark glyphs on a dark bar — invisible
+    /// except as a hover highlight. Setting them explicitly is what makes a forced theme
+    /// actually usable.
+    /// </remarks>
+    private void ApplyCaptionButtonColors(AppTheme theme)
+    {
+        if (_appWindow is null || !AppWindowTitleBar.IsCustomizationSupported())
+        {
+            return;
+        }
+
+        // Resolve "follow the system" to the theme the framework actually picked.
+        var effective = theme switch
+        {
+            AppTheme.Light => ElementTheme.Light,
+            AppTheme.Dark => ElementTheme.Dark,
+            _ => RootGrid.ActualTheme,
+        };
+
+        var foreground = effective == ElementTheme.Dark ? Colors.White : Colors.Black;
+
+        try
+        {
+            var titleBar = _appWindow.TitleBar;
+            titleBar.ButtonForegroundColor = foreground;
+            titleBar.ButtonHoverForegroundColor = foreground;
+            titleBar.ButtonPressedForegroundColor = foreground;
+            titleBar.ButtonInactiveForegroundColor = foreground;
+        }
+        catch (Exception ex)
+        {
+            // Cosmetic only: a failure here must not take the window down.
+            _services.Logger.Warn($"Applying caption button colours failed: {ex.Message}");
+        }
     }
 
     // ------------------------------------------------------------------ tray

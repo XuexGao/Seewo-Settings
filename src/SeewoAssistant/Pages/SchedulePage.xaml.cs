@@ -64,6 +64,29 @@ public sealed partial class SchedulePage : ModulePageBase
         TaskList.ItemsSource = _tasks;
     }
 
+    // ------------------------------------------------------------------ intro
+
+    protected override string? IntroKey => "schedule";
+
+    protected override string? IntroTitle => "定时任务";
+
+    protected override string? IntroBody =>
+        """
+把其它几个模块的动作编成一条时间表：到点开摄像头、到点提醒、到点关机。
+
+每条任务是一串动作，按顺序执行。比如"每天 8:00 打开虚拟摄像头，
+8:30 发一个通知"，就是两个动作串起来。
+
+三点必须知道：
+
+一、程序得开着。任务由这个程序自己触发，关掉它任务就不会跑。
+二、错过的不会补。8:00 的班车，9:00 才开机就真的不开了。
+三、不并发。上一次还没跑完，下一次就直接跳过。
+
+「定时表达式」那栏是标准的 cron 写法，五个数字分别是分、时、日、月、周。
+不熟的话点下面的预设，比对着改更快。
+""";
+
     protected override void OnServicesReady()
     {
         CountdownBox.Value = Services.Settings.ShutdownCountdownSeconds;

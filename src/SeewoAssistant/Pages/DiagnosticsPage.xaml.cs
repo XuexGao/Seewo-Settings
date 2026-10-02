@@ -21,6 +21,23 @@ public sealed partial class DiagnosticsPage : ModulePageBase
         InitializeComponent();
     }
 
+    // ------------------------------------------------------------------ intro
+
+    protected override string? IntroKey => "diagnostics";
+
+    protected override string? IntroTitle => "日志与诊断";
+
+    protected override string? IntroBody =>
+        """
+出问题的时候先来这里。
+
+「能力自检」会把每个模块到底能不能用列一遍，哪一项不对一眼就能看到。
+「运行日志」是程序刚才做了什么，报错也在里面。两块都能实时刷新。
+
+要让别人帮你排查，点「导出诊断报告」——它把运行环境、自检结果和最近的日志
+打成一个文本文件，直接发过去就行。里面不含任何个人文件内容。
+""";
+
     protected override void OnServicesReady()
     {
         PopulateEnvironment();

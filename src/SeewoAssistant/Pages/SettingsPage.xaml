@@ -35,11 +35,33 @@
                                   OnContent="已开启"
                                   OffContent="已关闭" />
 
-                    <ToggleSwitch x:Name="FollowSystemThemeToggle"
-                                  Header="跟随系统深色/浅色主题"
-                                  AutomationProperties.Name="跟随系统深色/浅色主题"
+                    <!-- The theme picker lives here now. It used to be a button in the
+                         title bar, which was unreachable in full screen because the window
+                         buttons are drawn over that corner. -->
+                    <ComboBox x:Name="ThemeCombo"
+                              Header="外观主题"
+                              Width="280"
+                              SelectionChanged="OnThemeChanged"
+                              AutomationProperties.Name="外观主题" />
+
+                    <TextBlock x:Name="ThemeHint"
+                               Style="{StaticResource CardBodyStyle}"
+                               FontSize="12" />
+
+                    <!-- The pages explain themselves once on first open instead of
+                         carrying a permanent paragraph. This is the way back to those
+                         explanations, which is what makes switching them off safe. -->
+                    <ToggleSwitch x:Name="ShowPageIntrosToggle"
+                                  Header="首次进入页面时显示功能说明"
+                                  AutomationProperties.Name="首次进入页面时显示功能说明"
                                   OnContent="已开启"
                                   OffContent="已关闭" />
+
+                    <Button x:Name="ReplayIntrosButton"
+                            Click="OnReplayIntros"
+                            AutomationProperties.Name="重新显示全部功能说明">
+                        <TextBlock Text="重新显示全部功能说明" />
+                    </Button>
                 </StackPanel>
             </Border>
 

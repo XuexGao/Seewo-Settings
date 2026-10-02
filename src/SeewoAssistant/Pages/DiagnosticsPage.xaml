@@ -61,7 +61,7 @@
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="12">
                     <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="逐项验证各模块依赖的系统能力。任何一项显示为不可用，都会在对应页面给出说明。" />
+                               Text="逐项检查各模块依赖的系统能力，不通过的会在对应页面给出说明。" />
 
                     <Button x:Name="RunChecksButton" Click="OnRunChecks" Style="{StaticResource AccentButtonStyle}"
                     AutomationProperties.Name="运行自检">

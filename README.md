@@ -3,7 +3,11 @@
 一个基于 **WinUI 3** 的 Windows 桌面工具集，用来自主掌控教室/办公电脑上的摄像头、麦克风和
 屏幕内容，并对希沃（Seewo）系列软件做统一管控。
 
-界面为简体中文，浅色为主并跟随系统深色主题，使用 Mica 背景与卡片式布局。
+界面为简体中文，默认跟随系统深色/浅色主题（也可以在「设置」里固定为浅色或深色），
+使用 Mica 背景与卡片式布局。
+
+各功能模块的说明会在**首次进入该页面时以弹窗显示一次**，不再常驻在页面顶部占用版面。
+之后可在「设置 → 常规」里点「重新显示全部功能说明」再看一遍。
 
 > **开发者请注意：** 实现细节、设计取舍、已知陷阱和验证方法都在
 > **[AGENTS.md](AGENTS.md)**。本文只讲「这是什么、怎么用」。
@@ -145,14 +149,44 @@
 
 ## 下载与安装
 
+发行版提供两种方式，**内容完全相同**，任选其一：
+
+| 方式 | 适合 | 说明 |
+| --- | --- | --- |
+| **安装程序** | 想当成普通软件来装 | 可以自选安装目录，自己决定要不要快捷方式 |
+| **解压即用** | 不想安装，或想放在 U 盘里 | 解压到任意目录，双击 exe 就跑 |
+
+两种方式都不需要安装 .NET 运行时、Windows App SDK 运行时或 VC++ 可再发行组件。
+
+### 方式一：安装程序
+
+从 [Releases](../../releases) 下载 `SeewoAssistant-Setup-x64.exe` 并运行。安装过程中可以：
+
+- **选择安装位置**（默认是 `C:\Program Files\SeewoAssistant`）
+- **选择是否创建桌面快捷方式**
+- **选择是否创建开始菜单快捷方式**
+- **选择安装完成后是否立即启动**
+
+安装程序默认按「所有用户」安装，需要管理员权限。安装一开始会弹出安装模式对话框，
+选「仅为我安装」即可不需要管理员权限，装到当前用户自己的目录下。
+
+卸载请用「设置 → 应用」，或直接运行安装目录下的 `unins000.exe`。
+
+> **卸载不会删除你的配置和日志。** 它们放在 `%LOCALAPPDATA%\SeewoAssistant`，不在安装目录里，
+> 所以重装或升级之后设置、日志和崩溃报告都还在。
+
+### 方式二：解压即用
+
 从 [Releases](../../releases) 下载 `SeewoAssistant-win-x64.zip`，解压到任意目录，
 双击 `SeewoAssistant.exe` 即可运行，无需安装。
+
+### 注册原生组件（两种方式都需要）
 
 **首次使用虚拟摄像头**需要注册原生组件（写注册表，需要管理员权限）。
 以管理员身份打开 PowerShell：
 
 ```powershell
-cd <解压目录>\scripts
+cd <安装目录>\scripts
 .\Install-Native.ps1 -Action Install     # 安装
 .\Install-Native.ps1 -Action Status      # 查看当前状态
 .\Install-Native.ps1 -Action Uninstall   # 卸载
@@ -163,11 +197,11 @@ cd <解压目录>\scripts
 **关于 `SeewoAssistant-native-components.zip`：** 发行页面还有一个单独的包，里面只有
 `x64/` 和 `x86/` 的原生 DLL（虚拟摄像头媒体源、DirectShow 滤镜、安装工具）。
 
-**通常不需要它。** 主包 `SeewoAssistant-win-x64.zip` 已经包含全部原生组件，解压即用。
+**通常不需要它。** 主包和安装程序都已经包含全部原生组件。
 这个独立包只在这两种情况下有用：
 
-- 主包中的原生组件被杀毒软件误删或损坏，可以解压后把 `x64/`、`x86/` 覆盖到
-  `<解压目录>\native\` 下恢复；
+- 已安装的原生组件被杀毒软件误删或损坏，可以解压后把 `x64/`、`x86/` 覆盖到
+  安装目录下的 `native\` 恢复；
 - 需要单独分发原生组件（例如只给已有安装补一个 DirectShow 滤镜）。
 
 ### 操作方式
@@ -207,11 +241,16 @@ CI 分成两个 workflow，因为「能编译」和「能用」是两回事：
 
 | Workflow | 做什么 |
 | --- | --- |
-| [`build.yml`](.github/workflows/build.yml) | 编译全部原生与托管项目、跑单元测试、打包发行版 |
+| [`build.yml`](.github/workflows/build.yml) | 编译全部原生与托管项目、跑单元测试、打包发行版（zip 与安装程序） |
 | [`test.yml`](.github/workflows/test.yml) | **真的启动应用**，遍历所有页面截图，点击关键按钮，检查日志有无错误 |
 
 `test.yml` 会把截图和日志作为 artifact 上传——**改动界面后请查看这些截图**。
-推送 `v*` 标签时会额外创建 GitHub Release。
+推送 `v*` 标签时会额外创建 GitHub Release，并把 zip 和安装程序一起作为附件。
+
+安装程序由 [`installer/SeewoAssistant.iss`](installer/SeewoAssistant.iss) 定义，用
+Inno Setup 6 编译。CI 里这一步是 `continue-on-error`：**zip 才是主要产物**，
+Inno Setup 不可用或编译失败时构建仍然交付 zip，只是本次不发布安装程序
+（构建摘要里会写明）。版本号取自标签，去掉开头的 `v`。
 
 ---
 
@@ -224,7 +263,7 @@ CI 分成两个 workflow，因为「能编译」和「能用」是两回事：
 - 跨进程注入**默认关闭**，开启时需二次确认，且只对显式选中的**单个**窗口生效。
 - 跨进程调用只写入约 30 字节的一次性机器码，调用返回后**立即释放**，目标进程不留任何常驻代码或数据。
 - 退出程序时会**自动恢复所有被挂起的进程**。
-- 配置、日志和崩溃报告都在 `%LOCALAPPDATA%\SeewoAssistant`，卸载脚本不会自动删除。
+- 配置、日志和崩溃报告都在 `%LOCALAPPDATA%\SeewoAssistant`，卸载程序不会自动删除。
 
 **关于杀软误报：** 跨进程注入是杀软主动防御的重点监控行为，这是技术本身的固有属性。
 被拦截时程序会如实报告，不会静默重试。
@@ -245,6 +284,7 @@ Seewo-Settings/
 │  ├─ SeewoVirtualCamera.DShow/ DirectShow 源滤镜
 │  ├─ SeewoVirtualCamera.Setup/ 注册与摄像头管理工具
 ├─ scripts/Install-Native.ps1  安装 / 卸载 / 状态查询
+├─ installer/SeewoAssistant.iss 安装程序定义（Inno Setup 6）
 ├─ .github/workflows/          build.yml（构建）、test.yml（验证）
 ├─ AGENTS.md                   实现细节与开发指南
 └─ docs/ARCHITECTURE.md        架构与设计取舍

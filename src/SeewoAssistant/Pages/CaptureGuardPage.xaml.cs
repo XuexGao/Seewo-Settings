@@ -36,6 +36,26 @@ public sealed partial class CaptureGuardPage : ModulePageBase
         WindowList.ItemsSource = _visibleWindows;
     }
 
+    // ------------------------------------------------------------------ intro
+
+    protected override string? IntroKey => "capture";
+
+    protected override string? IntroTitle => "防截屏保护";
+
+    protected override string? IntroBody =>
+        """
+让选中的窗口不出现在截图、录屏和屏幕共享里。
+聊天窗口、密码框、写着身份证号的通知——不想被录进去的都适合。
+
+有个绕不开的限制得先讲清楚：Windows 的接口只肯保护"调用它自己的那个窗口"。
+所以保护这个工具自己的窗口永远成功；要保护微信、浏览器这类别的程序，
+就得写一小段代码进对方进程，让它自己去调这个接口。这一步就是「跨进程」，
+默认关着，需要你手动打开。
+
+开了也可能失败：杀软会拦、部分系统进程不让写、权限比它高的进程写进去也调不动。
+上面「系统支持情况」那行会告诉你这台机器到底行不行。
+""";
+
     protected override void OnServicesReady()
     {
         _suppressSettingWrites = true;
