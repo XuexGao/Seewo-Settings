@@ -1,4 +1,4 @@
-﻿; SeewoAssistant installer (Inno Setup 6).
+; SeewoAssistant installer (Inno Setup 6).
 ;
 ; This is the second distribution option. The zip produced by build.yml remains
 ; the "extract and run" package; this script wraps the *same* assembled release
@@ -102,10 +102,20 @@ UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExeName}
 
 [Languages]
-; ChineseSimplified.isl is an official Inno Setup translation and ships with
-; Inno Setup 6. Only this language is defined: the app itself is Simplified
-; Chinese only, and adding English would double every message for no benefit.
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; ChineseSimplified.isl is an official Inno Setup translation, but it is NOT
+; bundled with every Inno Setup install: the Chocolatey `innosetup` package that
+; CI uses (6.7.1) ships only the compiler plus a handful of languages, and
+; referencing `compiler:Languages\ChineseSimplified.isl` failed the build with
+; "Couldn't open include file". The file is therefore vendored next to this
+; script, which also makes a local compile behave identically to CI.
+;
+; Only this language is defined: the app itself is Simplified Chinese only, and
+; adding English would double every message for no benefit.
+;
+; The relative path resolves against this script's own directory (Inno's "source
+; directory"), so the file must stay beside this .iss. It is plain UTF-8 with no
+; BOM, which is what Inno's [Languages] documentation recommends for .isl files.
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 
 [Tasks]
 ; Both shortcuts are offered on the "Select Additional Tasks" page and both can

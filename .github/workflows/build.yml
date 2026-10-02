@@ -556,6 +556,17 @@ jobs:
             exit 1
           }
 
+          # The Simplified Chinese messages file is vendored next to the script
+          # rather than taken from `compiler:Languages\...`, because the Chocolatey
+          # `innosetup` package does NOT ship that translation - referencing the
+          # compiler copy failed the build with "Couldn't open include file".
+          # Checked here so a missing/renamed file names itself, instead of
+          # surfacing as a bare ISCC line number.
+          if (-not (Test-Path 'installer/ChineseSimplified.isl')) {
+            Write-Error '缺少 installer/ChineseSimplified.isl，[Languages] 会编译失败。'
+            exit 1
+          }
+
           # The Chocolatey package id is `innosetup`; it installs Inno Setup 6 and
           # puts a shim for ISCC.exe on PATH. --no-progress keeps the log readable.
           choco install innosetup -y --no-progress

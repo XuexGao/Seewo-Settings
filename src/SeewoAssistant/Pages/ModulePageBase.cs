@@ -96,22 +96,28 @@ public abstract class ModulePageBase : Page
     /// <summary>Records the intro as seen and shows it.</summary>
     private async Task ShowIntroOnceAsync()
     {
-        if (IntroKey is null || IntroTitle is null || IntroBody is null)
+        // Captured into locals so the compiler knows these cannot be null inside the
+        // dialog's callback, where a property read would not be narrowed.
+        var key = IntroKey;
+        var title = IntroTitle;
+        var body = IntroBody;
+
+        if (key is null || title is null || body is null)
         {
             return;
         }
 
         // Re-check: the page may have been opened twice in quick succession, or the
         // explanation may have been reset from the settings page in between.
-        if (Services.Settings.SeenPageIntros.Contains(IntroKey))
+        if (Services.Settings.SeenPageIntros.Contains(key))
         {
             return;
         }
 
-        Services.Settings.SeenPageIntros.Add(IntroKey);
+        Services.Settings.SeenPageIntros.Add(key);
         Services.SaveSettings();
 
-        await ShowIntroAsync(IntroTitle, IntroBody);
+        await ShowIntroAsync(key, title, body);
     }
 
     /// <summary>Shows a one-time explanation.</summary>
@@ -123,7 +129,7 @@ public abstract class ModulePageBase : Page
     /// press exactly the controls the test avoids, so this dialog carries a label no page
     /// button uses.
     /// </remarks>
-    private async Task ShowIntroAsync(string title, string message)
+    private async Task ShowIntroAsync(string key, string title, string message)
     {
         if (!await _dialogGate.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(true))
         {
@@ -149,7 +155,7 @@ public abstract class ModulePageBase : Page
             var again = new HyperlinkButton { Content = "以后可以在「设置」里重新显示这些说明" };
             again.Click += (_, _) =>
             {
-                Services.Settings.SeenPageIntros.Remove(IntroKey);
+                Services.Settings.SeenPageIntros.Remove(key);
                 Services.SaveSettings();
                 dialog.Hide();
                 Report("已重置当前页面的说明。下次进入时会重新显示。");
