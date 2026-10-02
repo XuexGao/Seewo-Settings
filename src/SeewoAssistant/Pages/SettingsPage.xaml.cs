@@ -158,10 +158,10 @@ public sealed partial class SettingsPage : ModulePageBase
             : InfoBarSeverity.Error;
 
         CrossProcessInfoBar.Message = Services.CaptureGuard.IsCrossProcessAvailable
-            ? "跨进程保护会把载荷 DLL 注入目标进程，由目标进程自己调用 SetWindowDisplayAffinity。" +
-              "载荷会在完成后自我卸载，并有 10 分钟生命周期上限。杀软主动防御可能拦截这个行为——" +
-              "这是技术本身的固有属性，不是缺陷。只对显式选中的单个窗口生效。"
-            : "未找到 SeewoCaptureGuard.Payload.dll，跨进程保护无法使用。请确认发行包完整。";
+            ? "保护其他程序的窗口时，会往那个进程里写入一小段机器码桩，由它自己调用 SetWindowDisplayAffinity，"
+              + "调用返回后立即释放，不会驻留。杀软的主动防御可能拦下这个动作，这是这类技术的固有限制，不是缺陷。"
+              + "只对你显式选中的那一个窗口生效。"
+            : $"当前系统不支持跨进程保护：需要 Windows 10 2004（内部版本 {CaptureGuardService.ExcludeFromCaptureMinimumBuild}）以上。";
     }
 
     private void OnAllowCrossProcessToggled(object sender, RoutedEventArgs e)

@@ -322,8 +322,8 @@
                                Text="「禁止联网」会为该程序创建入站和出站两条阻断规则，覆盖域、专用和公用三种网络配置文件。规则名称带 SeewoAssistant Block 前缀，便于精确识别和移除。" />
 
                     <Button x:Name="RemoveAllFirewallButton" Click="OnRemoveAllFirewallRules"
-                    AutomationProperties.Name="移除本程序创建的所有防火墙规则">
-                        <TextBlock Text="移除本程序创建的所有防火墙规则" />
+                    AutomationProperties.Name="移除本工具创建的所有防火墙规则">
+                        <TextBlock Text="移除本工具创建的所有防火墙规则" />
                     </Button>
                 </StackPanel>
             </Border>
@@ -334,7 +334,7 @@
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="12">
                     <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="覆盖全部四种真实的自启机制：计划任务、注册表 Run 键、启动文件夹快捷方式、自动启动服务。禁用注册表项时是改名保留而不是删除，随时可以完整还原。" />
+                               Text="开机自启一共四种，这里都能管：计划任务、Run 键、启动文件夹、自启服务。禁用时只改名、不删，随时能还原。" />
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="ScanStartupButton" Click="OnScanStartup" Style="{StaticResource AccentButtonStyle}"

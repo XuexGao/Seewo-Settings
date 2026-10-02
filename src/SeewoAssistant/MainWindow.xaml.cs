@@ -185,6 +185,10 @@ public sealed partial class MainWindow : Window
             ContentFrame.Navigate(pageType, _services);
         }
 
+        // The title bar shows where you are, which is what a title bar is for: it cannot
+        // contradict the page underneath, and it never needs clearing.
+        TitleBarStatus.Text = item.Content as string ?? string.Empty;
+
         // Attribute anything the incoming page reports to that page.
         _services.CurrentPage = tag;
     }
@@ -356,12 +360,6 @@ public sealed partial class MainWindow : Window
         _statusSourcePage = null;
         StatusText.Text = string.Empty;
         StatusIcon.Glyph = "\uE946";
-
-        // The title bar carries the same message and was being left behind. The report
-        // saw「已切换到新建任务。填写名称、定时表达式和动作序列后保存。」still showing on the
-        // diagnostics and settings pages, describing something the user had done
-        // somewhere else entirely.
-        TitleBarStatus.Text = string.Empty;
     }
 
     private void ShowStatus(StatusMessage message)
@@ -379,7 +377,11 @@ public sealed partial class MainWindow : Window
             _ => "\uE946",
         };
 
-        TitleBarStatus.Text = message.Text;
+        // Deliberately not mirrored into the title bar. Writing the same sentence in two
+        // places made it ambiguous which one was "the" status - the fourth test report
+        // saw「已切换到新建任务。填写名称、定时表达式和动作序列后保存。」at both the top and
+        // the bottom of the same page. The bottom bar owns transient messages; the title
+        // bar now carries the page name, which is stable and cannot go stale.
     }
 
     private void OnPrivacyUsageDetected(object? sender, Core.Models.PrivacyUsageEvent usageEvent)

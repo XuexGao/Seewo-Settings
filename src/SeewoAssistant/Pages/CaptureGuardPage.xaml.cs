@@ -52,7 +52,7 @@ public sealed partial class CaptureGuardPage : ModulePageBase
         UpdateSelectedWindowState();
         RefreshWindows();
 
-        Report("提示：SetWindowDisplayAffinity 只能作用于本程序自己的窗口；保护其他程序需要开启跨进程注入。");
+        Report("提示：SetWindowDisplayAffinity 只能作用于这个工具自己的窗口；保护其他程序需要开启跨进程注入。");
     }
 
     protected override void OnNavigatedFrom(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
@@ -232,10 +232,10 @@ public sealed partial class CaptureGuardPage : ModulePageBase
         var available = Services.CaptureGuard.IsCrossProcessAvailable;
 
         CrossProcessStateText.Text = allowed
-            ? "已允许。保护其他程序的窗口时，本程序会把一小段载荷注入对方进程，由对方进程调用系统接口。"
-            : "已禁止。此时只能保护本程序自己的窗口，选择其他程序的窗口会说明原因而不是静默失败。";
+            ? "已允许。保护其他程序的窗口时，会往那个进程里写入一小段机器码桩，由它自己调用系统接口。"
+            : "已禁止。这时只能保护这个工具自己的窗口。选中别的程序的窗口时会告诉你为什么不行，不会点了没反应。";
 
-        CrossProcessBadgeText.Text = allowed ? (available ? "已允许" : "载荷缺失") : "已禁止";
+        CrossProcessBadgeText.Text = allowed ? (available ? "已允许" : "系统版本不支持") : "已禁止";
         SetBadge(
             CrossProcessBadge,
             CrossProcessBadgeText,
@@ -243,9 +243,15 @@ public sealed partial class CaptureGuardPage : ModulePageBase
             active: allowed,
             warning: allowed && !available);
 
+        // This used to report whether a payload DLL was present. There is no such file
+        // any more - a short machine-code stub is written into the target and freed as
+        // soon as the call returns - so the old text named a file that does not exist and
+        // told users to re-download the package for a problem that was really an OS
+        // version. It now states the actual requirement.
         CrossProcessAvailabilityText.Text = available
-            ? "已找到跨进程载荷 SeewoCaptureGuard.Payload.dll，功能可用。"
-            : "未找到跨进程载荷 SeewoCaptureGuard.Payload.dll，即使打开开关也无法保护其他程序的窗口。请确认使用的是完整发行包。";
+            ? "功能可用。保护其他程序的窗口时，会往那个进程里写入一小段机器码桩，由目标进程自己调用系统接口，调用返回后立即释放。"
+            : $"功能不可用：系统版本过低（需要 Windows 10 2004，内部版本 {CaptureGuardService.ExcludeFromCaptureMinimumBuild} 以上）。"
+              + "这个限制来自系统本身，换发行包也解决不了。";
     }
 
     private async void OnCrossProcessToggled(object sender, RoutedEventArgs e)
@@ -264,13 +270,13 @@ public sealed partial class CaptureGuardPage : ModulePageBase
 
         var accepted = await ConfirmAsync(
             "开启跨进程注入？",
-            "开启后，保护其他程序的窗口时，本程序会把一小段载荷（DLL）注入到那个程序里，" +
-            "由它自己去调用系统的窗口保护接口。请先读完这几点：\n\n" +
-            "· 杀毒软件和安全软件可能把这次注入当作可疑行为并拦截，甚至弹出告警。\n" +
-            "· 注入只作用于你手动选择的那一个进程，不会影响其他程序。\n" +
-            "· 功能是可逆的：取消保护、关闭本程序或点击「取消保护」时，载荷会自行卸载。\n" +
-            "· 出于稳定性考虑，桌面窗口管理器、资源管理器和关键系统进程会被直接拒绝，不会尝试注入。\n\n" +
-            "是否仍然开启？",
+            "开启后，保护其他程序的窗口时，会往那个程序里写入一小段机器码桩，"
+            + "由它自己调用系统的窗口保护接口。先看完这几点：\n\n"
+            + "· 杀软和安全软件可能把这次写入当成可疑行为拦下来，甚至弹告警。\n"
+            + "· 只对你手动选中的那一个进程生效，不会碰其他程序。\n"
+            + "· 保护会一直留在那个窗口上，直到你点「取消保护」，或者那个程序自己重启。\n"
+            + "· 桌面、任务栏和关键系统进程不能注入——风险太大，已直接跳过。\n\n"
+            + "还要开启吗？",
             "我已了解，开启",
             "取消");
 
@@ -394,18 +400,33 @@ public sealed partial class CaptureGuardPage : ModulePageBase
             $"进程：{_selected.ProcessName}（PID {_selected.ProcessId}）　类名：{_selected.ClassName}　句柄：{_selected.HandleHex}\n" +
             $"归属：{ownership}　当前保护状态：{CaptureGuardService.Describe(_selected.Protection)}";
 
-        // A cross-process target without permission cannot be protected at all, so the
-        // button is disabled and the reason is stated rather than letting the click fail.
+        // A cross-process target without permission cannot be *protected*: there is no way
+        // to reach into that process, so the button is disabled and the reason is stated
+        // rather than letting the click fail.
         var blocked = !_selected.IsOwnProcess && !Services.Settings.CaptureAllowCrossProcess;
 
-        ProtectSelectedButton.IsEnabled = !blocked && _selected.Protection != CaptureProtectionState.Excluded;
-        UnprotectSelectedButton.IsEnabled = !blocked && _selected.Protection != CaptureProtectionState.None;
+        // Removing protection is a different case, and gating it on the same flag created
+        // a dead end. A window can still be protected from an earlier session - the
+        // affinity lives in the window, so it survives this app restarting - and if
+        // cross-process injection is off by then, gating on `blocked` left both buttons
+        // disabled with no way to release the window. The user could only restart the
+        // protected program itself, with nothing on screen explaining why.
+        //
+        // The button is therefore enabled whenever the window is actually protected, and
+        // clicking it offers to turn the permission on instead of refusing. A state the
+        // user can see must not be a state they cannot leave.
+        var isProtected = _selected.Protection != CaptureProtectionState.None;
 
-        PickerInfoBar.Message =
-            $"「{_selected.ProcessName}」属于其他进程，本程序不能直接保护它的窗口。" +
-            "请先在上方「跨进程保护（实验性）」中开启跨进程注入；开启后仍然可能因为杀毒软件拦截或目标进程权限更高而失败。";
+        ProtectSelectedButton.IsEnabled = !blocked && _selected.Protection != CaptureProtectionState.Excluded;
+        UnprotectSelectedButton.IsEnabled = isProtected;
+
+        PickerInfoBar.Message = isProtected
+            ? $"「{_selected.ProcessName}」当前仍处于受保护状态。取消保护同样需要写入那个进程，"
+              + "所以要先把上方「跨进程保护（实验性）」的开关打开；点「取消保护」时可以直接开启。"
+            : $"「{_selected.ProcessName}」属于其他进程，这个工具没法直接保护它的窗口。"
+              + "请先在上方「跨进程保护（实验性）」中开启跨进程注入；开启后仍然可能因为杀毒软件拦截或目标进程权限更高而失败。";
         PickerInfoBar.Severity = InfoBarSeverity.Warning;
-        PickerInfoBar.IsOpen = blocked;
+        PickerInfoBar.IsOpen = blocked && !isProtected;
     }
 
     private async void OnProtectSelected(object sender, RoutedEventArgs e) =>
@@ -436,16 +457,54 @@ public sealed partial class CaptureGuardPage : ModulePageBase
 
         if (!_selected.IsOwnProcess && !allowCrossProcess)
         {
-            var reason =
-                $"无法保护「{_selected.ProcessName}」：它是其他进程的窗口，而跨进程注入当前处于关闭状态。" +
-                "请在上方「跨进程保护（实验性）」中打开开关后重试。";
+            // Releasing a window that is already protected has to be possible, so this is
+            // offered rather than refused. Leaving the window stuck is worse than the
+            // injection the user already consented to once - and the consent is what the
+            // setting records, so turning it back on here does not skip any warning.
+            var alreadyProtected = !protect && _selected.Protection != CaptureProtectionState.None;
 
-            PickerInfoBar.Message = reason;
-            PickerInfoBar.Severity = InfoBarSeverity.Warning;
-            PickerInfoBar.IsOpen = true;
+            if (!alreadyProtected)
+            {
+                var reason =
+                    $"无法保护「{_selected.ProcessName}」：它是其他进程的窗口，而跨进程注入当前处于关闭状态。" +
+                    "请在上方「跨进程保护（实验性）」中打开开关后重试。";
 
-            Report(reason, StatusSeverity.Warning);
-            return;
+                PickerInfoBar.Message = reason;
+                PickerInfoBar.Severity = InfoBarSeverity.Warning;
+                PickerInfoBar.IsOpen = true;
+
+                Report(reason, StatusSeverity.Warning);
+                return;
+            }
+
+            var accepted = await ConfirmAsync(
+                $"取消对「{_selected.ProcessName}」的保护？",
+                "这个窗口现在处于受保护状态，在截图和录屏里完全不出现。要取消它，需要往那个进程里注入"
+                + "一小段载荷，让它自己把保护关掉——所以必须先打开跨进程注入。\n\n"
+                + "· 取消保护后这个窗口会恢复成正常显示，可以在截图和录屏里重新看到。\n"
+                + "· 载荷调用返回后立即释放，不会驻留在对方进程里。\n"
+                + "· 上次开启时的风险确认依然有效，不再重复询问。\n\n"
+                + "是否现在打开并取消保护？",
+                "打开并取消保护",
+                "先不取消");
+
+            if (!accepted)
+            {
+                Report($"已保持「{_selected.ProcessName}」的保护状态。", StatusSeverity.Informational);
+                return;
+            }
+
+            Services.Settings.CaptureAllowCrossProcess = true;
+            _suppressSettingWrites = true;
+            CrossProcessToggle.IsOn = true;
+            _suppressSettingWrites = false;
+
+            UpdateCrossProcessState();
+            allowCrossProcess = true;
+
+            // Persist it, so the next launch starts from the state the user just chose
+            // instead of making them answer the same prompt again.
+            Services.SaveSettings();
         }
 
         var target = _selected;

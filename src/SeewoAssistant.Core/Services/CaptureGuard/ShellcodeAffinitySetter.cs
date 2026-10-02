@@ -227,7 +227,7 @@ public sealed class ShellcodeAffinitySetter
 
                 return ActionResult.Fail(
                     error == NativeMethods.ERROR_ACCESS_DENIED
-                        ? "创建远程线程被拒绝。这通常意味着被杀软或 EDR 的主动防御拦截了。"
+                        ? "创建远程线程被拒绝——大概率是杀软或 EDR 拦了。"
                         : $"创建远程线程失败，Win32 错误 {error}。" +
                           (error == 5 ? " 这通常意味着被杀软主动防御拦截。" : string.Empty));
             }

@@ -64,8 +64,8 @@ public sealed partial class DiagnosticsPage : ModulePageBase
 
         var hasPayload = Services.CaptureGuard.IsCrossProcessAvailable;
         PayloadText.Text = hasPayload
-            ? "注入载荷已就位，可在开启开关后保护其他程序的窗口。"
-            : "未找到 SeewoCaptureGuard.Payload.dll，跨进程防截屏不可用。";
+            ? "可用。打开开关后就能保护其他程序的窗口。"
+            : $"不可用：系统版本过低（需要 Windows 10 2004，内部版本 {CaptureGuardService.ExcludeFromCaptureMinimumBuild} 以上）。";
 
         SettingsPathText.Text = Services.SettingsStore.FilePath;
         LogPathText.Text = Services.FileLogger.LogFilePath;
@@ -117,13 +117,13 @@ public sealed partial class DiagnosticsPage : ModulePageBase
                         : "未找到 SeewoVirtualCamera.Setup.exe",
                     "缺少该工具时无法注册媒体源或创建摄像头实例。");
 
-                AddCheck("跨进程防截屏载荷", Services.CaptureGuard.IsCrossProcessAvailable,
-                    Services.CaptureGuard.IsCrossProcessAvailable ? "已找到" : "未找到",
-                    "缺少载荷时只能保护本程序自己的窗口。");
+                AddCheck("跨进程防截屏", Services.CaptureGuard.IsCrossProcessAvailable,
+                    Services.CaptureGuard.IsCrossProcessAvailable ? "可用" : "系统版本不支持",
+                    $"不可用时只能保护这个工具自己的窗口。需要 Windows 10 2004（内部版本 {CaptureGuardService.ExcludeFromCaptureMinimumBuild}）以上。");
 
                 AddCheck("摄像头/麦克风监控", Services.PrivacyMonitor.IsStoreReady,
                     Services.PrivacyMonitor.IsStoreReady ? "已连接到系统记录" : "尚未找到系统记录",
-                    "系统记录键在某个程序首次使用摄像头或麦克风之后才会出现，这是正常的。");
+                    "系统要等某个程序第一次用过摄像头或麦克风之后才会留下记录，所以现在空着是正常的。");
 
                 AddCheck("管理员权限", IsElevated(),
                     IsElevated() ? "已提权" : "未提权",

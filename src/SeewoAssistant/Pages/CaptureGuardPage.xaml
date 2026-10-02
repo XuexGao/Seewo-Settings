@@ -24,13 +24,13 @@
                     <TextBlock Text="请先了解这个限制" Style="{StaticResource CardTitleStyle}" />
 
                     <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="Windows 提供的接口 SetWindowDisplayAffinity 只能作用于「调用它的那个进程自己的窗口」。这是操作系统的硬性规定，不是本程序的取舍。" />
+                               Text="系统接口 SetWindowDisplayAffinity 有个硬性限制：只能保护调用者自己的窗口。这是 Windows 定的，不是我们偷懒。" />
 
                     <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="因此，保护本程序自己的窗口总是可以成功；而保护别的程序的窗口（例如微信、浏览器）必须先把一小段载荷注入到对方进程里，再由对方进程去调用同一个接口。" />
+                               Text="所以保护这个工具自己的窗口永远能成功；想保护别的程序（微信、浏览器等），就得先往对方进程里写入一小段机器码，让它自己去调这个接口。" />
 
                     <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="注入默认是关闭的，必须由你在这里手动打开。开启后仍然存在这些风险：杀毒软件和安全软件可能直接拦截它；部分系统进程会被拒绝注入；某些以更高权限运行的进程即使注入成功也会调用失败。" />
+                               Text="跨进程默认关着，要你在这里手动打开。开了也可能失败：杀软会拦，部分系统进程不让写，权限比它高的进程就算写进去了也调不动。" />
 
                     <InfoBar IsOpen="True"
                              IsClosable="False"
@@ -46,7 +46,7 @@
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="12">
                     <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="对本程序自己的主窗口应用保护，不需要注入，也不会被安全软件拦截。这是验证功能是否有效的安全路径。" />
+                               Text="给这个工具自己的窗口加保护：不用写入别的进程，也不会被杀软拦。想先确认功能有没有用，试这个最稳。" />
 
                     <TextBlock x:Name="OwnWindowText"
                                Style="{StaticResource MonospaceStyle}"

@@ -127,7 +127,7 @@
                                       OffContent="已关闭"
                                       Toggled="OnShowBannerToggled" />
                         <TextBlock Style="{StaticResource CardBodyStyle}"
-                                   Text="系统通知可能被「专注助手」或「请勿打扰」静默拦截，横幅由本程序自己绘制，不会被拦截。摄像头和麦克风提醒正是不能漏掉的一类消息，所以建议开启。" />
+                                   Text="系统通知可能被「专注助手」或「请勿打扰」吃掉。横幅是我们自己画的，拦不住。摄像头和麦克风提醒恰恰不能漏，所以建议开着。" />
                     </StackPanel>
 
                     <ToggleSwitch x:Name="PlaySoundToggle"

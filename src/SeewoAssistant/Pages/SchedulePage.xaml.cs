@@ -952,7 +952,7 @@ public sealed partial class SchedulePage : ModulePageBase
             ActionKind.KillSeewo => "强制结束希沃进程，未保存的数据会丢失。",
             ActionKind.BlockSeewoNetwork => "为希沃程序创建入站和出站防火墙阻断规则，需要管理员权限。",
             ActionKind.UnblockSeewoNetwork => "移除希沃程序的防火墙阻断规则。",
-            ActionKind.DisableSeewoStartup => "禁用希沃的开机自启项。注册表项会改名保留，可完整还原。",
+            ActionKind.DisableSeewoStartup => "禁用希沃的开机自启项。只改名、不删，随时能还原。",
             ActionKind.EnableSeewoStartup => "恢复希沃的开机自启项。",
             ActionKind.Shutdown => "关闭计算机。会先显示倒计时提示，期间可以取消。需要管理员权限。",
             ActionKind.Restart => "重启计算机。会先显示倒计时提示，期间可以取消。需要管理员权限。",

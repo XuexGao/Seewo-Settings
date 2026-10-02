@@ -605,8 +605,8 @@ public sealed partial class SeewoPage : ModulePageBase
     {
         if (!await ConfirmAsync(
                 "移除所有防火墙规则",
-                "这会移除本程序创建的所有 SeewoAssistant Block 规则，所有被禁止联网的希沃程序都会恢复联网。\n\n" +
-                "本程序不会触碰任何由你或其他软件创建的防火墙规则。",
+                "这只会删掉我们建的那几条 SeewoAssistant Block 规则，被禁止联网的希沃程序都会恢复联网。\n\n" +
+                "你或者其他软件建的规则，一律不动。",
                 "移除全部"))
         {
             return;

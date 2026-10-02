@@ -129,7 +129,7 @@
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="12">
                     <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="把运行环境、能力自检结果和最近日志打包成一个文本文件，便于附在问题反馈里。文件中不包含任何个人文件内容。" />
+                               Text="把运行环境、自检结果和最近的日志打成一个文本文件，方便你贴到反馈里。文件里不含任何个人文件内容。" />
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="ExportButton" Click="OnExport" Style="{StaticResource AccentButtonStyle}">
