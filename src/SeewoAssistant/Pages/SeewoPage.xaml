@@ -64,7 +64,17 @@
                         </Button>
                     </StackPanel>
 
-                    <ProgressRing x:Name="ScanProgress" IsActive="False" Width="20" Height="20" HorizontalAlignment="Left" />
+                    <!-- The ring on its own was easy to miss during a scan that walks
+                         several directory trees and takes roughly ten seconds. The label
+                         says what is happening and about how long it takes, so the wait is
+                         explained instead of looking like a hang. -->
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <ProgressRing x:Name="ScanProgress" IsActive="False" Width="20" Height="20" />
+                        <TextBlock x:Name="ScanProgressText"
+                                   Style="{StaticResource CardBodyStyle}"
+                                   VerticalAlignment="Center"
+                                   Visibility="Collapsed" />
+                    </StackPanel>
 
                     <TextBlock x:Name="ScanSummaryText" Style="{StaticResource CardBodyStyle}" Visibility="Collapsed" />
 

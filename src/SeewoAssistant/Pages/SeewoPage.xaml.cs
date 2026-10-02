@@ -92,6 +92,8 @@ public sealed partial class SeewoPage : ModulePageBase
     private async void OnScan(object sender, RoutedEventArgs e)
     {
         ScanProgress.IsActive = true;
+        ScanProgressText.Text = "正在扫描…（要遍历几个目录树，大约十秒）";
+        ScanProgressText.Visibility = Visibility.Visible;
         ScanButton.IsEnabled = false;
         _discovered.Clear();
 
@@ -124,6 +126,7 @@ public sealed partial class SeewoPage : ModulePageBase
         finally
         {
             ScanProgress.IsActive = false;
+            ScanProgressText.Visibility = Visibility.Collapsed;
             ScanButton.IsEnabled = true;
         }
     }
