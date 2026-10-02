@@ -614,6 +614,37 @@ catch {
 # Get anything the runner put on screen out of the way before touching the UI.
 Hide-InterferingWindows -KeepProcessId $process.Id
 
+# Each page explains itself once, in a modal dialog, the first time it is opened. The
+# state directory was cleared above, so this run is a genuine first launch and the very
+# first page's explanation must be on screen right now.
+#
+# Asserted rather than assumed: a feature that silently stops appearing is invisible in
+# the artifacts - the screenshots look exactly the same whether the dialog was dismissed
+# by the helper or never opened at all. If this regresses, the failure is "the intro did
+# not appear", not a page full of unreachable controls.
+Write-Step '首次启动应出现一次性功能说明'
+
+$introButton = $null
+
+for ($attempt = 0; $attempt -lt 10; $attempt++) {
+    $introButton = Find-ByName -Window $window -Name '知道了'
+
+    if ($null -ne $introButton) { break }
+
+    Start-Sleep -Milliseconds 500
+    $window = Get-AppWindow -ProcessId $process.Id
+    if ($null -eq $window) { break }
+}
+
+if ($null -eq $introButton) {
+    Write-Fail '首次启动时没有出现一次性功能说明（找不到「知道了」按钮）。'
+}
+else {
+    Write-Pass '一次性功能说明按预期出现。'
+    Close-AppDialogs -Window $window
+    Start-Sleep -Milliseconds 400
+}
+
 # Enable the banner before the sweep. It is off by default, so without this the banner
 # window - the thing reported as showing a black block and then crashing - is never
 # created and its code never runs.

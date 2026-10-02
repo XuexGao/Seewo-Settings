@@ -117,6 +117,11 @@ public abstract class ModulePageBase : Page
         Services.Settings.SeenPageIntros.Add(key);
         Services.SaveSettings();
 
+        // Logged because a dialog appearing unbidden is otherwise unexplained, and
+        // because it is the only way to tell "shown and dismissed" apart from "never
+        // shown" when reading a report after the fact.
+        Services.Logger.Info($"Showing the one-time explanation for '{key}'.");
+
         await ShowIntroAsync(key, title, body);
     }
 
