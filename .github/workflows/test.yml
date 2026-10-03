@@ -362,8 +362,16 @@ jobs:
           # cannot make this check pass by testing keys nothing writes.
           $script = Get-Content 'scripts/Install-Native.ps1' -Raw
 
-          $categoryMatch = [regex]::Match($script, "\$VideoInputDeviceCategoryClsid\s*=\s*'([^']+)'")
-          $filterMatch = [regex]::Match($script, "\$DirectShowClsid\s*=\s*'([^']+)'")
+          # [regex]::Escape on a single-quoted name, not a literal "\$Name" inside a
+          # double-quoted string. PowerShell does not treat a backslash as an escape
+          # character, so "\$DirectShowClsid" is a variable reference to an undefined
+          # variable and expands to nothing - the pattern then matches no line at all and
+          # this step failed on its first run for that reason, not because the cleanup was
+          # wrong.
+          $categoryMatch = [regex]::Match(
+            $script, [regex]::Escape('$VideoInputDeviceCategoryClsid') + "\s*=\s*'([^']+)'")
+          $filterMatch = [regex]::Match(
+            $script, [regex]::Escape('$DirectShowClsid') + "\s*=\s*'([^']+)'")
 
           if (-not $categoryMatch.Success -or -not $filterMatch.Success) {
             Write-Error '无法从 Install-Native.ps1 读取分类 CLSID 或滤镜 CLSID。'
