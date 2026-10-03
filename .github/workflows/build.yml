@@ -155,6 +155,24 @@ jobs:
               $problems += "$($script.Name): 缺少 UTF-8 BOM，Windows PowerShell 5.1 会按 GBK 解码而解析失败"
             }
 
+            # A second BOM is possible and much harder to read: a tool that reads the
+            # file as UTF-8 (which keeps the BOM as a character) and writes it back with
+            # a BOM of its own produces two. Windows PowerShell 5.1 then fails on the
+            # first real line with "Unexpected attribute 'CmdletBinding'", which points
+            # nowhere near the cause. Counting them makes that a named failure.
+            $bomCount = 0
+
+            while (($bomCount * 3) + 2 -lt $bytes.Length -and
+                   $bytes[$bomCount * 3] -eq 0xEF -and
+                   $bytes[($bomCount * 3) + 1] -eq 0xBB -and
+                   $bytes[($bomCount * 3) + 2] -eq 0xBF) {
+              $bomCount++
+            }
+
+            if ($bomCount -gt 1) {
+              $problems += "$($script.Name): 有 $bomCount 个连续的 UTF-8 BOM，重复写入过一次；Windows PowerShell 5.1 会在第一行报语法错误"
+            }
+
             # Parse with the Windows PowerShell 5.1 parser specifically, if present.
             $legacy = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 
