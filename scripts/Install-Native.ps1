@@ -238,7 +238,11 @@ function Remove-ComRegistrationKeys {
     # key: every DirectShow enumeration still listed "Seewo Virtual Camera", selecting
     # it always failed, and the only tool that could remove it (this script) had just
     # been deleted together with the install directory.
+    #
+    # Returns the number of entries it could not remove, so a caller can tell a clean
+    # machine from a failed cleanup.
     $removed = 0
+    $failed = 0
 
     foreach ($clsid in @($MediaSourceClsid, $DirectShowClsid)) {
         foreach ($base in $ClsidRegistryPaths) {
@@ -248,10 +252,11 @@ function Remove-ComRegistrationKeys {
                 continue
             }
 
-            Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
 
             if (Test-Path $key) {
                 Write-Warn "无法删除注册项 $key（可能被占用或权限不足）"
+                $failed++
             }
             else {
                 Write-Ok "已删除注册项 $key"
@@ -260,13 +265,18 @@ function Remove-ComRegistrationKeys {
         }
     }
 
-    $removed += Remove-DirectShowCategoryEntries
+    # Each helper returns how many entries it could NOT remove. Returning the number of
+    # successes instead - which is what this did - makes the value useless to a caller
+    # that needs to know whether the cleanup worked: "0 removed" and "3 failed" look
+    # identical from the outside, so every caller ended up ignoring it and
+    # Cleanup-Native could only ever report success.
+    $failed += Remove-DirectShowCategoryEntries
 
-    if ($removed -eq 0) {
+    if (($removed -eq 0) -and ($failed -eq 0)) {
         Write-Info '没有需要删除的 COM 注册项'
     }
 
-    return $removed
+    return $failed
 }
 
 function Remove-DirectShowCategoryEntries {
@@ -283,7 +293,10 @@ function Remove-DirectShowCategoryEntries {
     # Both the name and the CLSID are matched. The name is what this program registers,
     # but a stale entry from an older version could carry a different CLSID value, and
     # an entry whose CLSID points at us under a different name would otherwise survive.
+    #
+    # Returns the number of entries it could not remove, like its caller.
     $removed = 0
+    $failed = 0
 
     foreach ($base in $ClsidRegistryPaths) {
         $instanceRoot = Join-Path (Join-Path $base $VideoInputDeviceCategoryClsid) 'Instance'
@@ -310,10 +323,11 @@ function Remove-DirectShowCategoryEntries {
                 continue
             }
 
-            Remove-Item -Path $entry.PSPath -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $entry.PSPath -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
 
             if (Test-Path $entry.PSPath) {
                 Write-Warn "无法删除分类注册项 $($entry.PSPath)"
+                $failed++
             }
             else {
                 Write-Ok "已删除分类注册项 $($entry.PSChildName)"
@@ -322,32 +336,47 @@ function Remove-DirectShowCategoryEntries {
         }
     }
 
-    return $removed
+    return $failed
 }
 
 function Remove-FirewallRules {
+    # Returns the number of rules that are still there afterwards.
     $rules = Get-NetFirewallRule -DisplayName 'SeewoAssistant Block*' -ErrorAction SilentlyContinue
 
-    if ($rules) {
-        $rules | Remove-NetFirewallRule
-        Write-Ok "已移除 $($rules.Count) 条防火墙规则"
-    }
-    else {
+    if (-not $rules) {
         Write-Info '没有需要移除的防火墙规则'
+        return 0
     }
+
+    $rules | Remove-NetFirewallRule | Out-Null
+    Write-Ok "已移除 $($rules.Count) 条防火墙规则"
+
+    # Removal is not always immediate, so this asks the system rather than assuming the
+    # cmdlet succeeding meant the rules are gone.
+    $left = @(Get-NetFirewallRule -DisplayName 'SeewoAssistant Block*' -ErrorAction SilentlyContinue)
+
+    if ($left.Count -gt 0) {
+        Write-Warn "仍有 $($left.Count) 条防火墙规则没有移除"
+    }
+
+    return $left.Count
 }
 
 function Remove-OwnSettingsKey {
-    if (Test-Path $OwnSettingsKey) {
-        Remove-Item -Path $OwnSettingsKey -Recurse -Force -ErrorAction SilentlyContinue
-
-        if (Test-Path $OwnSettingsKey) {
-            Write-Warn "无法删除 $OwnSettingsKey"
-        }
-        else {
-            Write-Ok '已删除本程序记录的系统集成信息'
-        }
+    # Returns 1 when the key survived, 0 otherwise, matching the other removal helpers.
+    if (-not (Test-Path $OwnSettingsKey)) {
+        return 0
     }
+
+    Remove-Item -Path $OwnSettingsKey -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+
+    if (Test-Path $OwnSettingsKey) {
+        Write-Warn "无法删除 $OwnSettingsKey"
+        return 1
+    }
+
+    Write-Ok '已删除本程序记录的系统集成信息'
+    return 0
 }
 
 function Write-InstallRecord {
@@ -495,23 +524,29 @@ function Uninstall-Native {
     # skipped entirely) and the case where it existed but refused to unregister.
     Write-Header '删除 COM 注册项'
 
-    Remove-ComRegistrationKeys | Out-Null
+    $failures = Remove-ComRegistrationKeys
 
-    Write-Header '移除本程序创建的防火墙规则'
+    Write-Header '移除这个工具创建的防火墙规则'
 
     try {
-        Remove-FirewallRules
+        $failures += Remove-FirewallRules
     }
     catch {
         Write-Warn "移除防火墙规则失败：$($_.Exception.Message)"
+        $failures++
     }
 
     Write-Header '删除系统集成记录'
 
-    Remove-OwnSettingsKey
+    $failures += Remove-OwnSettingsKey
 
     Write-Header '卸载完成'
     Write-Info '配置文件保留在 %LOCALAPPDATA%\SeewoAssistant，如需彻底清理可手动删除。'
+
+    if ($failures -gt 0) {
+        Write-Fail "有 $failures 处没有清理成功，请以管理员身份重新运行本脚本。"
+        return 1
+    }
 
     return 0
 }
@@ -524,28 +559,41 @@ function Cleanup-Native {
     # registered the components. It is the "get this machine back to a clean state"
     # action: the entry point for a copy that was moved, was deleted by hand, or lost
     # the race with a second copy over the shared CLSID.
-    Write-Header '清除本程序对系统的改动'
+    Write-Header '清除这个工具对系统的改动'
 
     Write-Header 'COM 组件注册'
 
-    Remove-ComRegistrationKeys | Out-Null
+    $failures = Remove-ComRegistrationKeys
 
     Write-Header '防火墙规则'
 
     try {
-        Remove-FirewallRules
+        $failures += Remove-FirewallRules
     }
     catch {
         Write-Warn "移除防火墙规则失败：$($_.Exception.Message)"
+        $failures++
     }
 
     Write-Header '系统集成记录'
 
-    Remove-OwnSettingsKey
+    $failures += Remove-OwnSettingsKey
+
+    Write-Info '个人配置和日志没有删除，仍在 %LOCALAPPDATA%\SeewoAssistant。'
+    Write-Info "这个工具的文件也没有删除，仍在 $Root。"
+
+    # The exit code is what Uninstall-Portable.ps1 branches on before it tells the user
+    # they can delete the folder, so it has to reflect reality. Returning 0
+    # unconditionally - which is what this did - made that branch dead code and made the
+    # promise below unconditional too.
+    if ($failures -gt 0) {
+        Write-Fail "有 $failures 处没有清理成功，请以管理员身份重新运行本脚本。"
+        Write-Info '在这些项目清理成功之前，请不要删除程序目录。'
+        return 1
+    }
 
     Write-Header '清理完成'
-    Write-Info '个人配置和日志没有删除，仍在 %LOCALAPPDATA%\SeewoAssistant。'
-    Write-Info "本程序的文件也没有删除，仍在 $Root；现在直接删除这个目录不会再留下任何系统残留。"
+    Write-Info '虚拟摄像头组件、防火墙规则和系统集成记录都已清除，可以安全删除程序目录了。'
 
     return 0
 }

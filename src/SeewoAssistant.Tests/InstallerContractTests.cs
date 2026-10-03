@@ -319,4 +319,108 @@ public sealed class InstallerContractTests
 
         Assert.Contains("请不要删除这个目录", script);
     }
+
+    [Fact]
+    public void ACleanupThatFailsIsReportedAsAFailure()
+    {
+        // The promise "you can delete this folder now, nothing will be left behind" is
+        // made by Uninstall-Portable.ps1 only when the cleanup exits 0. That branch is
+        // worthless unless the cleanup can actually exit non-zero, and it could not:
+        // Cleanup-Native returned 0 unconditionally, and the helpers it called returned
+        // the number of entries they had *removed*, which cannot express failure -
+        // "0 removed" and "3 could not be removed" look identical to a caller.
+        var script = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "scripts", "Install-Native.ps1"));
+
+        foreach (var name in new[]
+                 {
+                     "Remove-ComRegistrationKeys",
+                     "Remove-DirectShowCategoryEntries",
+                     "Remove-FirewallRules",
+                     "Remove-OwnSettingsKey",
+                 })
+        {
+            var body = Regex.Match(
+                script,
+                $@"^function {Regex.Escape(name)} \{{(?<body>.*?)^\}}",
+                RegexOptions.Singleline | RegexOptions.Multiline);
+
+            Assert.True(body.Success, $"找不到 {name}。");
+
+            // Each of these has to be able to say "something is still there".
+            Assert.True(
+                Regex.IsMatch(body.Groups["body"].Value, @"Write-Warn|\$left\.Count"),
+                $"{name} 没有任何失败路径，调用方无法判断清理是否成功。");
+        }
+
+        // And the two entry points have to turn that into a non-zero exit code.
+        foreach (var name in new[] { "Cleanup-Native", "Uninstall-Native" })
+        {
+            var body = Regex.Match(
+                script,
+                $@"^function {Regex.Escape(name)} \{{(?<body>.*?)^\}}",
+                RegexOptions.Singleline | RegexOptions.Multiline).Groups["body"].Value;
+
+            Assert.Contains("if ($failures -gt 0)", body);
+            Assert.Contains("return 1", body);
+        }
+    }
+
+    [Fact]
+    public void NoScriptMakesAnUnconditionalPromiseAboutTheMachine()
+    {
+        // The same sentence lived in two scripts, and fixing one left the other. It is
+        // the sentence that turns a failed cleanup into a phantom camera, because it
+        // tells the user to delete the one thing that could still fix it.
+        foreach (var file in new[] { "Install-Native.ps1", "Uninstall-Portable.ps1" })
+        {
+            var script = File.ReadAllText(Path.Combine(RepositoryRoot(), "scripts", file));
+
+            Assert.DoesNotContain("不会再留下任何系统残留", script);
+        }
+
+        // Each script phrases its own two outcomes, so the contract is asserted as a
+        // contract rather than by matching one wording: the failure message must come
+        // from the branch that exits non-zero, and the "you may delete this" message
+        // must not be reachable before that branch.
+        var native = File.ReadAllText(Path.Combine(RepositoryRoot(), "scripts", "Install-Native.ps1"));
+        var failBranch = native.IndexOf("if ($failures -gt 0)", StringComparison.Ordinal);
+        var safeMessage = native.IndexOf("可以安全删除程序目录了", StringComparison.Ordinal);
+
+        Assert.True(failBranch >= 0, "Install-Native.ps1 缺少清理失败的分支。");
+        Assert.True(safeMessage >= 0, "Install-Native.ps1 缺少清理成功的说明。");
+        Assert.True(failBranch < safeMessage, "「可以安全删除」出现在失败分支之前，失败时也会被打印。");
+
+        var portable = File.ReadAllText(Path.Combine(RepositoryRoot(), "scripts", "Uninstall-Portable.ps1"));
+        var portableFail = portable.IndexOf("if ($cleanupExit -ne 0)", StringComparison.Ordinal);
+        var portableKeep = portable.IndexOf("在清理成功之前请不要删除这个目录", StringComparison.Ordinal);
+        var portableDone = portable.IndexOf("已经反注册了虚拟摄像头组件", StringComparison.Ordinal);
+
+        Assert.True(portableFail >= 0, "Uninstall-Portable.ps1 缺少对清理退出码的判断。");
+        Assert.True(portableKeep >= 0, "Uninstall-Portable.ps1 失败时没有要求保留目录。");
+        Assert.True(portableDone >= 0, "Uninstall-Portable.ps1 缺少清理成功的说明。");
+        Assert.True(portableFail < portableDone, "完成说明出现在退出码判断之前，失败时也会被打印。");
+    }
+
+    [Fact]
+    public void TheSuspendDialogTextIsNotMistakableForAButtonLabel()
+    {
+        // Reported four times: the binary string table contains "将挂起 " with a trailing
+        // space, read as a button label. It was a fragment of an interpolated sentence -
+        // the compiler emits the literal stretch before each hole as its own constant -
+        // and the space is the correct spacing between a Chinese word and a numeral. The
+        // label is the third argument of that call.
+        //
+        // Rather than keep explaining that, the sentence is built with string.Format, so
+        // the whole template is one constant containing {0} and there is no fragment left
+        // for a scanner to mistake for a label.
+        var page = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "src", "SeewoAssistant", "Pages", "SeewoPage.xaml.cs"));
+
+        var dialog = page[page.IndexOf("挂起选中进程", StringComparison.Ordinal)..];
+        dialog = dialog[..dialog.IndexOf("挂起\"", StringComparison.Ordinal)];
+
+        Assert.Contains("string.Format(", dialog);
+        Assert.DoesNotContain("$\"将挂起 ", dialog);
+    }
 }

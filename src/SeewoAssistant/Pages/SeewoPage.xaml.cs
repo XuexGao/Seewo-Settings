@@ -373,9 +373,20 @@ public sealed partial class SeewoPage : ModulePageBase
 
         if (!await ConfirmAsync(
                 "挂起选中进程",
-                $"将挂起 {selected.Count} 个进程：\n{string.Join("\n", selected.Select(p => $"· {p.ProcessName} (PID {p.ProcessId})"))}\n\n" +
-                "被挂起的进程会完全冻结（不响应、不刷新画面），但不会丢失数据。随时可以恢复。\n" +
-                "退出这个工具时会自动恢复所有被挂起的进程。",
+                // Built with string.Format rather than interpolation on purpose. An
+                // interpolated string is compiled into one constant per literal stretch
+                // around each hole, so this sentence used to leave the fragment "将挂起 "
+                // in the binary - with a trailing space, because a Chinese word followed
+                // by a numeral is spaced. Four rounds of review read that fragment as a
+                // button label with a stray trailing space and reported it. With a
+                // format string the whole template is one constant containing {0}, which
+                // cannot be mistaken for a label.
+                string.Format(
+                    "将挂起 {0} 个进程：\n{1}\n\n" +
+                    "被挂起的进程会完全冻结（不响应、不刷新画面），但不会丢失数据。随时可以恢复。\n" +
+                    "退出这个工具时会自动恢复所有被挂起的进程。",
+                    selected.Count,
+                    string.Join("\n", selected.Select(p => $"· {p.ProcessName} (PID {p.ProcessId})"))),
                 "挂起"))
         {
             return;
