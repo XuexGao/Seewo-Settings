@@ -154,7 +154,14 @@ public sealed class CaptureGuardUxContractTests
         Assert.True(showStatus.Success, "找不到 ShowStatus。");
         Assert.DoesNotContain("TitleBarStatus.Text = message.Text", showStatus.Groups["body"].Value);
 
-        // The title bar still has a job: it names the page you are on.
-        Assert.Contains("TitleBarStatus.Text = item.Content as string", source);
+        // The title bar no longer carries any text of its own. It briefly named the
+        // current page, which restated the navigation pane's selection highlight; that
+        // was removed at the user's request, so the status bar is now the only place a
+        // message can appear - and it is cleared on navigation, which is what stops a
+        // message from one page being read as belonging to another.
+        Assert.DoesNotContain("TitleBarStatus", source);
+
+        var xaml = ReadSource("src", "SeewoAssistant", "MainWindow.xaml");
+        Assert.DoesNotContain("TitleBarStatus", xaml);
     }
 }

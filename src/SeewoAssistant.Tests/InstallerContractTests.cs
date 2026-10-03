@@ -256,4 +256,67 @@ public sealed class InstallerContractTests
 
         Assert.DoesNotContain("SeewoVirtualCamera.DShow.dll", removal);
     }
+
+    [Fact]
+    public void CleanupRemovesTheDirectShowCategoryEntryAsWell()
+    {
+        // The reported defect, and it survived a review pass precisely because only the
+        // other removal path had been checked. A DirectShow capture source registers in
+        // two places - its own CLSID, and an entry under the video-input-device category
+        // that ICreateDevEnum walks. Deleting only the first leaves the camera in every
+        // device list, pointing at a CLSID that no longer exists.
+        //
+        // `-Action Uninstall` got this right because `regsvr32 /u` removes both.
+        // `-Action Cleanup` deletes keys by hand and removed only one, so the zip
+        // distribution - whose uninstaller calls Cleanup - still left the phantom camera.
+        var script = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "scripts", "Install-Native.ps1"));
+
+        // The category GUID must be the one the native filter registers under. It is
+        // read from the native source rather than repeated, because a mismatch here is
+        // silent: the cleanup would delete a key nobody wrote and report success.
+        var native = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "native", "SeewoVirtualCamera.DShow", "dllmain.cpp"));
+
+        var category = Regex.Match(native, @"\{860BB310-[0-9A-Fa-f-]+\}");
+        Assert.True(category.Success, "原生源码里找不到 VideoInputDeviceCategory 的 GUID。");
+        Assert.Contains(category.Value, script);
+
+        // And the friendly name, which is the other thing the entry is matched by. It is
+        // defined in the filter's own translation unit rather than in dllmain.cpp, so
+        // both files are searched - the point is to compare against whatever the filter
+        // actually registers, not against a particular file.
+        var friendlySource = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "native", "SeewoVirtualCamera.DShow", "SeewoDShowFilter.cpp"));
+
+        var friendly = Regex.Match(friendlySource, @"kFriendlyName\[\] = L""(?<name>[^""]+)""");
+        Assert.True(friendly.Success, "原生源码里找不到 kFriendlyName。");
+        Assert.Contains(friendly.Groups["name"].Value, script);
+
+        // The removal must be reachable from the shared routine, so both paths use it.
+        var removal = script[script.IndexOf("function Remove-ComRegistrationKeys", StringComparison.Ordinal)..];
+        removal = removal[..removal.IndexOf("function Remove-DirectShowCategoryEntries", StringComparison.Ordinal)];
+        Assert.Contains("Remove-DirectShowCategoryEntries", removal);
+    }
+
+    [Fact]
+    public void TheUninstallerDoesNotPromiseMoreThanItDelivers()
+    {
+        // The script told the user "deleting this folder will not leave anything behind"
+        // before it had checked whether the cleanup succeeded. That sentence is what
+        // turns a failed cleanup into a phantom camera, because it is an instruction to
+        // delete the one thing that could still fix it.
+        var script = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "scripts", "Uninstall-Portable.ps1"));
+
+        // The promise may only be made after the exit code has been examined.
+        var checkAt = script.IndexOf("if ($cleanupExit -ne 0)", StringComparison.Ordinal);
+        var promiseAt = script.IndexOf("已经反注册了虚拟摄像头组件", StringComparison.Ordinal);
+
+        Assert.True(checkAt >= 0, "找不到对清理退出码的判断。");
+        Assert.True(promiseAt >= 0, "找不到完成后的说明。");
+        Assert.True(checkAt < promiseAt, "完成说明出现在退出码判断之前，失败时也会被打印。");
+
+        Assert.Contains("请不要删除这个目录", script);
+    }
 }

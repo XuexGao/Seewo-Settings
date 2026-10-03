@@ -45,8 +45,6 @@
 
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="12">
-                    <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="首次使用要先注册媒体源，再创建摄像头实例。注册需要管理员权限，创建实例不用；程序没有管理员权限时会弹出系统提权提示来完成注册。" />
 
                     <!-- The CLSID is machine-wide: installing a second or portable copy silently
                          re-points it at the new folder, and the old copy's camera then breaks
@@ -57,9 +55,6 @@
                                FontSize="12"
                                IsTextSelectionEnabled="True" />
 
-                    <TextBlock Style="{StaticResource CardBodyStyle}"
-                               FontSize="12"
-                               Text="「完全卸载」会从系统里注销这些组件（删除 HKLM 中的 COM 注册），不只是移除摄像头实例。" />
 
                     <Button x:Name="ReregisterButton"
                             Click="OnReregister"
@@ -114,8 +109,6 @@
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="16">
 
-                    <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="推送的画面会实时出现在虚拟摄像头的输出里。停止推送后，摄像头会自动回退到内置的动态测试画面，不会黑屏。" />
 
                     <!-- Colour -->
                     <StackPanel Spacing="8">
@@ -158,8 +151,6 @@
                     <!-- Image -->
                     <StackPanel Spacing="8">
                         <TextBlock Text="本地图片" FontWeight="SemiBold" />
-                        <TextBlock Style="{StaticResource CardBodyStyle}"
-                                   Text="支持 PNG、JPG、BMP、GIF、TIFF。图片会按比例缩放并居中填充，不会变形。" />
 
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBox x:Name="ImagePathTextBox"
@@ -182,8 +173,6 @@
                     <!-- Animated test pattern -->
                     <StackPanel Spacing="8">
                         <TextBlock Text="动态测试画面" FontWeight="SemiBold" />
-                        <TextBlock Style="{StaticResource CardBodyStyle}"
-                                   Text="彩条 + 灰阶渐变 + 移动扫描条。用来确认摄像头是活的，也能肉眼看出延迟和掉帧。" />
 
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button x:Name="TestPatternButton" Click="OnStartTestPattern" Style="{StaticResource AccentButtonStyle}"
@@ -224,8 +213,6 @@
 
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="16">
-                    <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="分辨率越高越清晰，但推流开销也越大。1280×720 对绝大多数场景已经足够。" />
 
                     <StackPanel Orientation="Horizontal" Spacing="16">
                         <ComboBox x:Name="ResolutionCombo" Header="分辨率" Width="200" SelectionChanged="OnResolutionChanged" />

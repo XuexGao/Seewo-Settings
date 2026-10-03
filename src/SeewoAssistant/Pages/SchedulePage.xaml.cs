@@ -70,6 +70,10 @@ public sealed partial class SchedulePage : ModulePageBase
 
     protected override string? IntroTitle => "定时任务";
 
+    // Three permanent InfoBars used to sit on this page - the scheduling behaviour, why
+    // there is no Task Scheduler integration, and why there is no wake-from-off button.
+    // They are the kind of thing that is read once and then only takes up room, so they
+    // are here, together, instead of scattered down the page.
     protected override string? IntroBody =>
         """
 把其它几个模块的动作编成一条时间表：到点开摄像头、到点提醒、到点关机。
@@ -77,16 +81,26 @@ public sealed partial class SchedulePage : ModulePageBase
 每条任务是一串动作，按顺序执行。比如"每天 8:00 打开虚拟摄像头，
 8:30 发一个通知"，就是两个动作串起来。
 
-三点必须知道：
+四件必须先知道的事：
 
-一、程序得开着。任务由这个程序自己触发，关掉它任务就不会跑。
-二、错过的不会补。8:00 的班车，9:00 才开机就真的不开了。
-三、不并发。上一次还没跑完，下一次就直接跳过。
+一、这个工具得开着。任务由它自己的调度器触发，关掉它任务就不会跑。
+    这个版本还没有把任务写进 Windows 任务计划程序，所以界面上也没放那个开关，
+    免得看着像能用。写进去之后就能在程序关着时也执行。
+二、错过的不会补。8:00 的班车，9:00 才开机就真的不开了，只有下一个计划时刻会触发。
+三、不并发。上一次还没跑完，下一次直接跳过。
+四、没有「定时开机」。完全关机（S5）的电脑上没有操作系统在跑，任何软件都叫不醒它。
+    可靠的路子只有两条，都在 Windows 之外配置：固件的 RTC 定时唤醒（开机时按
+    Del / F2 / F10 进 BIOS/UEFI，在「Power Management」或「Advanced」里找
+    「RTC Alarm」「Wake Up Event」或「Resume by RTC Alarm」），以及 Wake-on-LAN
+    （除了 BIOS 允许网络唤醒，还要在网卡的高级属性里启用「Wake on Magic Packet」）。
+    与其放一个不可靠的按钮，不如把方法说清楚。
 
-「定时表达式」那栏是标准的 cron 写法，五个数字分别是分、时、日、月、周。
-不熟的话点下面的预设，比对着改更快。
+「定时表达式」那栏是标准的 cron 写法，五个数字分别是分、时、日、月、周，
+取值范围是 分 0-59、时 0-23、日 1-31、月 1-12、周 0-7（0 和 7 都是周日）。
+例如 0 8 * * 1-5 就是工作日 08:00。不熟的话点下面的预设，比对着改更快。
+
+关机与重启会先弹系统倒计时，期间可以取消；这些操作需要管理员权限。
 """;
-
     protected override void OnServicesReady()
     {
         CountdownBox.Value = Services.Settings.ShutdownCountdownSeconds;

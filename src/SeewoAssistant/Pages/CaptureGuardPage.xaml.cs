@@ -42,6 +42,9 @@ public sealed partial class CaptureGuardPage : ModulePageBase
 
     protected override string? IntroTitle => "防截屏保护";
 
+    // The page used to carry a whole "先知道这个限制" card, two paragraphs under the
+    // own-window buttons and one above the window list. All of it explained, none of it
+    // was a control, so it moved here and is read once.
     protected override string? IntroBody =>
         """
 让选中的窗口不出现在截图、录屏和屏幕共享里。
@@ -52,10 +55,20 @@ public sealed partial class CaptureGuardPage : ModulePageBase
 就得写一小段代码进对方进程，让它自己去调这个接口。这一步就是「跨进程」，
 默认关着，需要你手动打开。
 
-开了也可能失败：杀软会拦、部分系统进程不让写、权限比它高的进程写进去也调不动。
-上面「系统支持情况」那行会告诉你这台机器到底行不行。
-""";
+于是这一页分成两半：
 
+- 保护这个工具窗口：不用写入别的进程，也不会被杀软拦。想先确认功能有没有用，
+  试这个最稳。验证方法是点「保护本程序窗口」，然后按 Win+Shift+S 截图并框选
+  本窗口所在的区域——窗口区域会变成空白或黑色；点「取消保护」再截一次就恢复正常。
+- 保护其他程序的窗口：属于实验性功能。开了也可能失败：杀软会拦、部分系统进程
+  不让写、权限比它高的进程写进去也调不动。
+
+「窗口列表」列出当前可见的顶层窗口，选一行就能对它应用或取消保护。列表是刷新时
+的快照，窗口关掉之后那一行就失效了，刷新一下即可。
+
+懒得在列表里翻，可以点「雷达取景」：开启后每秒约 10 次读取鼠标指针下方的窗口并
+实时显示，把鼠标移到目标窗口上，点「确定」就选中了。
+""";
     protected override void OnServicesReady()
     {
         _suppressSettingWrites = true;
@@ -157,7 +170,7 @@ public sealed partial class CaptureGuardPage : ModulePageBase
 
         if (window is null)
         {
-            OwnWindowText.Text = "无法读取本程序主窗口的句柄，本机窗口操作不可用。";
+            OwnWindowText.Text = "读不到这个工具主窗口的句柄，本机窗口操作不可用。";
             ProtectOwnButton.IsEnabled = false;
             UnprotectOwnButton.IsEnabled = false;
             return;
@@ -177,7 +190,7 @@ public sealed partial class CaptureGuardPage : ModulePageBase
 
         if (window is null)
         {
-            Report("无法读取本程序主窗口的句柄，操作已取消。", StatusSeverity.Error);
+            Report("读不到这个工具主窗口的句柄，操作已取消。", StatusSeverity.Error);
             return;
         }
 
@@ -193,7 +206,7 @@ public sealed partial class CaptureGuardPage : ModulePageBase
 
         if (window is null)
         {
-            Report("无法读取本程序主窗口的句柄，操作已取消。", StatusSeverity.Error);
+            Report("无法读取这个工具主窗口的句柄，操作已取消。", StatusSeverity.Error);
             return;
         }
 
@@ -284,7 +297,7 @@ public sealed partial class CaptureGuardPage : ModulePageBase
         if (!CrossProcessToggle.IsOn)
         {
             Services.Settings.CaptureAllowCrossProcess = false;
-            PersistCrossProcess("已关闭跨进程注入，现在只能保护本程序自己的窗口。");
+            PersistCrossProcess("已关闭跨进程注入，现在只能保护这个工具自己的窗口。");
             return;
         }
 

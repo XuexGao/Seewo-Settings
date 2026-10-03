@@ -25,18 +25,34 @@ public sealed partial class VirtualCameraPage : ModulePageBase
 
     protected override string? IntroTitle => "虚拟摄像头";
 
+    // Everything that used to sit permanently on this page now lives here. The page
+    // keeps its title, its one-line subtitle and the controls; the reasoning, the
+    // caveats and the advice are read once, on the first visit.
     protected override string? IntroBody =>
         """
 给系统装一个"假的"摄像头，名字就叫「SeewoAssistant Virtual Camera」。
 装好以后，微信、钉钉、腾讯会议、OBS 这些软件的摄像头下拉框里就能选到它，
-选上之后对方看到的画面由这个程序决定，而不是你真实的摄像头。
+选上之后对方看到的画面由这个工具决定，而不是你真实的摄像头。
 
-具体怎么用，看这一页的「选择分辨率」和「选择颜色 / 图片」两块：挑好画面，
-点「开始推流」，再去别的软件里选这个摄像头就行。
+用法：先注册媒体源，再创建摄像头实例。注册要写系统注册表，需要管理员权限，
+没有权限时会弹出提权提示；创建实例不用。懒得分开点，就按「一键安装」。
+装完第一次用，可能要重启一下目标软件，它才会重新读到设备列表。
 
-两个前提说在前面：Windows 10 和 Windows 11 走的是两套完全不同的实现，
-装之前先看上面那行「系统支持情况」；装完第一次用可能需要重启一下目标软件，
-它才会重新读取设备列表。
+画面从哪儿来，在「推送画面」里挑：
+
+- 纯色：填一个 #RRGGBB 颜色值，或者直接点下面的预设色块。
+- 本地图片：支持 PNG、JPG、BMP、GIF、TIFF。图片按比例缩放并居中填充，不会变形。
+- 动态测试画面：彩条 + 灰阶渐变 + 移动扫描条。想确认摄像头是活的、想肉眼看出
+  延迟和掉帧，用这个最直接。
+
+推送的画面会实时出现在摄像头输出里。点「停止推送」后，摄像头会自动回退到内置的
+动态测试画面，不会黑屏——黑屏会让会议软件表现异常，所以这里是刻意这么做的。
+
+分辨率越高越清晰，推流开销也越大。1280×720 对绝大多数场景已经足够。
+
+最后两点：「完全卸载」是从系统里反注册这些组件（删掉 HKLM 里的 COM 注册），
+不只是移除摄像头实例，别和「移除摄像头」混了。另外 Windows 10 和 Windows 11
+走的是两套完全不同的实现，装之前先看一眼上面那行「系统支持情况」。
 """;
 
     protected override void OnServicesReady()
@@ -259,7 +275,7 @@ public sealed partial class VirtualCameraPage : ModulePageBase
 
                     if (!register.Success)
                     {
-                        Report("注册失败。请尝试以管理员身份重新运行本程序。", StatusSeverity.Error);
+                        Report("注册失败。请尝试以管理员身份重新运行这个工具。", StatusSeverity.Error);
                         return;
                     }
                 }
@@ -283,7 +299,7 @@ public sealed partial class VirtualCameraPage : ModulePageBase
 
         if (!await ConfirmAsync(
                 "重新注册到当前目录",
-                "这会把虚拟摄像头组件重新注册到本程序当前所在的目录：\n\n"
+                "这会把虚拟摄像头组件重新注册到这个工具当前所在的目录：\n\n"
                 + Services.SystemIntegration.AppDirectory + "\n\n"
                 + (state.IsElevated
                     ? "当前已经以管理员身份运行。"
@@ -344,7 +360,7 @@ public sealed partial class VirtualCameraPage : ModulePageBase
 
         if (!await ConfirmAsync(
                 "完全卸载",
-                "这会从系统注销本程序注册的虚拟摄像头组件（删除 HKLM 里的 COM 注册），并移除摄像头实例。\n\n"
+                "这会从系统反注册这个工具注册的虚拟摄像头组件（删除 HKLM 里的 COM 注册），并移除摄像头实例。\n\n"
                 + (state.IsElevated
                     ? "当前已经以管理员身份运行。"
                     : "注册写在 HKLM，需要管理员权限，接下来会弹出系统提权提示。")

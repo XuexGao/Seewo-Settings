@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+﻿﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Removes the changes the portable (zip) copy of 希沃助手 made to this machine.
@@ -131,7 +131,7 @@ function Remove-AppsAndFeaturesEntry {
 function Invoke-ElevatedCleanup {
     param([string]$Root)
 
-    Write-Header '注销虚拟摄像头组件（需要管理员权限）'
+    Write-Header '反注册虚拟摄像头组件（需要管理员权限）'
 
     if (Test-IsElevated) {
         & (Join-Path $Root 'scripts\Install-Native.ps1') -Action Cleanup
@@ -225,6 +225,21 @@ if (-not $KeepUserData) {
 # rather than something that happens because the script was double-clicked.
 Write-Header '程序文件'
 
+# The cleanup result is decided before anything is said about deleting the folder. The
+# previous order printed "deleting this folder will not leave anything behind" first and
+# checked the exit code afterwards, so the sentence was printed even when the cleanup had
+# failed - telling the user to do the one thing that turns a failed cleanup into a
+# phantom camera. A promise about the machine's state has to be made after the state is
+# known, not before.
+if ($cleanupExit -ne 0) {
+    Write-Header '清理未完成'
+    Write-Warn '系统级的组件注册没有清除干净，请以管理员身份重新运行本脚本。'
+    Write-Info "程序目录仍在：$releaseRoot"
+    Write-Info '在清理成功之前请不要删除这个目录：反注册组件的脚本就在里面。'
+    Write-Host ''
+    exit $cleanupExit
+}
+
 if ($DeleteFolder) {
     Write-Info "待删除：$releaseRoot"
     Write-Info '本脚本正在从这个目录运行，删除会交给一个在它退出后才执行的命令。'
@@ -239,16 +254,10 @@ if ($DeleteFolder) {
 }
 else {
     Write-Info "程序文件仍在：$releaseRoot"
-    Write-Info '现在可以直接删除这个目录，不会再留下任何系统残留。'
-    Write-Info '要连目录一起删，请加 -DeleteFolder 重新运行。'
+    Write-Info '已经反注册了虚拟摄像头组件，并清除了这个工具创建的防火墙规则和系统集成记录。'
+    Write-Info '现在可以删除这个目录，或加 -DeleteFolder 重新运行由脚本删除。'
 }
 
 Write-Host ''
-
-if ($cleanupExit -ne 0) {
-    Write-Warn '系统级清理没有完成，请以管理员身份重新运行本脚本。'
-    exit $cleanupExit
-}
-
 Write-Ok '清理完成。'
 exit 0

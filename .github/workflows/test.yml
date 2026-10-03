@@ -340,3 +340,88 @@ jobs:
           # annotations. Exit code 7 is now a clean pass; 8, 9 and anything else still
           # record a failure, so a genuine regression keeps the marker it had.
           exit $stepExit
+
+      # The reported defect this pins: `-Action Uninstall` and `-Action Cleanup` are two
+      # paths to the same end state, and they diverged. Uninstall ran `regsvr32 /u`,
+      # which removes the filter from the video-input-device category; Cleanup deleted
+      # the CLSID key directly and left the category entry, so the camera stayed in
+      # every DirectShow enumeration pointing at a CLSID that no longer existed. Only
+      # the Uninstall path had been checked, which is how it got through.
+      #
+      # The filter is registered here explicitly rather than relying on the earlier
+      # install step. On a Windows 11 runner `Install-Native.ps1` deliberately
+      # registers the Media Foundation backend instead - the DirectShow filter is the
+      # Windows 10 fallback - so without this the category entry would never exist and
+      # the assertions below would pass while testing nothing. The registration is
+      # done, checked to have taken effect, and only then cleaned up.
+      - name: Verify cleanup removes the DirectShow category entry too
+        if: always() && steps.resolve.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          # Read both literals from the script rather than repeating them, so a rename
+          # cannot make this check pass by testing keys nothing writes.
+          $script = Get-Content 'scripts/Install-Native.ps1' -Raw
+
+          $categoryMatch = [regex]::Match($script, "\$VideoInputDeviceCategoryClsid\s*=\s*'([^']+)'")
+          $filterMatch = [regex]::Match($script, "\$DirectShowClsid\s*=\s*'([^']+)'")
+
+          if (-not $categoryMatch.Success -or -not $filterMatch.Success) {
+            Write-Error '无法从 Install-Native.ps1 读取分类 CLSID 或滤镜 CLSID。'
+            exit 1
+          }
+
+          $categoryClsid = $categoryMatch.Groups[1].Value
+          $filterClsid = $filterMatch.Groups[1].Value
+
+          Write-Host "分类 CLSID：$categoryClsid"
+          Write-Host "滤镜 CLSID：$filterClsid"
+
+          $instancePath = "HKLM:\SOFTWARE\Classes\CLSID\$categoryClsid\Instance"
+          $filterKey = "HKLM:\SOFTWARE\Classes\CLSID\$filterClsid"
+
+          # Register the filter so there is something to remove. regsvr32 on the 64-bit
+          # filter writes both the CLSID key and the category entry.
+          $filterDll = (Resolve-Path 'artifacts/app/native/x64/SeewoVirtualCamera.DShow.dll').Path
+          $regsvr = Start-Process regsvr32.exe -ArgumentList '/s', "`"$filterDll`"" -Wait -PassThru
+          Write-Host "regsvr32 退出码：$($regsvr.ExitCode)"
+
+          # If registration did not take, the rest of this step would prove nothing, so
+          # that is a failure rather than a skip.
+          if (-not (Test-Path $filterKey)) {
+            Write-Error "注册后仍找不到滤镜 CLSID 键：$filterKey，本项检查无法进行。"
+            exit 1
+          }
+
+          $before = @(Get-ChildItem $instancePath -ErrorAction SilentlyContinue |
+            Where-Object { "$((Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).CLSID)" -eq $filterClsid })
+
+          if ($before.Count -eq 0) {
+            Write-Error "注册后分类下没有本滤镜的条目：$instancePath，本项检查无法进行。"
+            exit 1
+          }
+
+          Write-Host "注册后分类下有 $($before.Count) 个条目，开始清理。"
+
+          & 'artifacts/app/scripts/Install-Native.ps1' -Action Cleanup
+
+          $problems = @()
+
+          if (Test-Path $filterKey) {
+            $problems += "滤镜 CLSID 键仍在：$filterKey"
+          }
+
+          if (Test-Path $instancePath) {
+            $left = @(Get-ChildItem $instancePath -ErrorAction SilentlyContinue |
+              Where-Object { "$((Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).CLSID)" -eq $filterClsid })
+
+            if ($left.Count -gt 0) {
+              $problems += "DirectShow 分类注册项仍在：$($left.Name -join ', ')"
+            }
+          }
+
+          if ($problems.Count -gt 0) {
+            Write-Error "Cleanup 没有清理干净：$($problems -join '；')"
+            exit 1
+          }
+
+          Write-Host 'Cleanup 同时清除了滤镜 CLSID 和分类注册项。' -ForegroundColor Green

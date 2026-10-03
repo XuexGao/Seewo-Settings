@@ -149,11 +149,11 @@ public sealed class FirewallService
         }
         catch (UnauthorizedAccessException)
         {
-            return ActionResult.Fail("修改防火墙规则需要管理员权限，请以管理员身份运行本程序。");
+            return ActionResult.Fail("修改防火墙规则需要管理员权限，请以管理员身份运行这个工具。");
         }
         catch (COMException ex) when (ex.HResult == unchecked((int)0x80070005))
         {
-            return ActionResult.Fail("修改防火墙规则被拒绝，请以管理员身份运行本程序。");
+            return ActionResult.Fail("修改防火墙规则被拒绝，请以管理员身份运行这个工具。");
         }
         catch (Exception ex)
         {
@@ -187,11 +187,11 @@ public sealed class FirewallService
         }
         catch (UnauthorizedAccessException)
         {
-            return ActionResult.Fail("修改防火墙规则需要管理员权限，请以管理员身份运行本程序。");
+            return ActionResult.Fail("修改防火墙规则需要管理员权限，请以管理员身份运行这个工具。");
         }
         catch (COMException ex) when (ex.HResult == unchecked((int)0x80070005))
         {
-            return ActionResult.Fail("修改防火墙规则被拒绝，请以管理员身份运行本程序。");
+            return ActionResult.Fail("修改防火墙规则被拒绝，请以管理员身份运行这个工具。");
         }
         catch (Exception ex)
         {
@@ -240,7 +240,7 @@ public sealed class FirewallService
 
             Marshal.ReleaseComObject(policy);
 
-            return ActionResult.Ok($"已移除 {toRemove.Count} 条由本程序创建的防火墙规则。");
+            return ActionResult.Ok($"已移除 {toRemove.Count} 条由这个工具创建的防火墙规则。");
         }
         catch (Exception ex)
         {

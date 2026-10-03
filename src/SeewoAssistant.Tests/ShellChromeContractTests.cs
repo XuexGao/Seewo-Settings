@@ -92,6 +92,63 @@ public sealed class ShellChromeContractTests
         var window = ReadSource("src", "SeewoAssistant", "MainWindow.xaml.cs");
         Assert.Contains("ElementTheme.Default", window);
     }
+    [Fact]
+    public void NoStandaloneLabelHasStrayWhitespace()
+    {
+        // Reported three times as a defect: the binary string table contains "将挂起 "
+        // with a trailing space, read as a button label. It is not one. That space is
+        // inside a sentence built by string interpolation -
+        //     $"将挂起 {selected.Count} 个进程："
+        // - and the compiler emits the literal part before the hole as its own
+        // constant, so a string scanner sees a fragment ending in a space. The space
+        // separates a Chinese word from a following numeral, which is correct
+        // typography, and the real button label is the third argument of that call.
+        //
+        // This asserts what was actually meant. Two kinds of text are excluded, both
+        // because a space at their edge is correct rather than stray:
+        //   * <Run> children, which are pieces of one composed sentence. "PID " and
+        //     " · " are joined with their neighbours, so trimming them would run the
+        //     words together.
+        //   * values containing a binding or a format placeholder, which are templates
+        //     rather than text the user reads verbatim.
+        var root = FindRepositoryRoot();
+        var offenders = new List<string>();
+
+        foreach (var file in Directory.EnumerateFiles(
+                     Path.Combine(root, "src", "SeewoAssistant"), "*.xaml", SearchOption.AllDirectories))
+        {
+            var text = File.ReadAllText(file);
+
+            foreach (Match match in Regex.Matches(
+                         text,
+                         @"<(?<tag>\w+)(?<attrs>[^>]*?)(?:Content|Text|Header|PlaceholderText)=""(?<value>[^""]*)""[^>]*>"))
+            {
+                // Inline runs are sentence fragments, not controls with a label.
+                if (match.Groups["tag"].Value == "Run")
+                {
+                    continue;
+                }
+
+                var value = match.Groups["value"].Value;
+
+                if (value.Length == 0 || value == value.Trim())
+                {
+                    continue;
+                }
+
+                // A template, not a literal the user reads.
+                if (value.Contains('{'))
+                {
+                    continue;
+                }
+
+                offenders.Add($"{Path.GetFileName(file)}: [{value}]");
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            $"这些控件文案带有首尾空格：{string.Join(" | ", offenders)}");
 }
 
 /// <summary>
@@ -175,5 +232,7 @@ public sealed class LegacyThemeMigrationTests : IDisposable
     public void AnEmptyOrMissingFileUsesTheDefaults()
     {
         Assert.Equal(AppTheme.System, new SettingsStore(_directory).Load().Theme);
+    }
+
     }
 }

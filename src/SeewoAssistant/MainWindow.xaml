@@ -36,17 +36,17 @@
                 </Border>
             </StackPanel>
 
-            <TextBlock Grid.Column="1"
-                       x:Name="TitleBarStatus"
-                       Margin="16,0"
-                       VerticalAlignment="Center"
-                       TextTrimming="CharacterEllipsis"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <!-- Nothing to the right of the product name.
 
-            <!-- No settings or theme buttons here. The settings page is one click away in
-                 the navigation pane, so a second entry point was duplicate, and in
-                 full screen the window buttons overlay this corner and covered them. Both
-                 live on the settings page now, where nothing can overlap them. -->
+                 This slot held the current page's name. It was added to fix a real bug -
+                 a status sentence appearing at both the top and the bottom of the same
+                 page - but the navigation pane already highlights the page you are on, so
+                 it restated what the user could see, and it sat in the same corner the
+                 window buttons occupy in full screen. Removed at the user's request.
+
+                 No settings or theme buttons here either: the settings page is one click
+                 away in the navigation pane, so a second entry point was duplicate, and
+                 in full screen the window buttons overlay this corner and covered them. -->
         </Grid>
 
         <!-- Side navigation. Each item is one of the five modules. -->

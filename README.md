@@ -176,7 +176,7 @@
 
 卸载请用「设置 → 应用」，或直接运行安装目录下的 `unins000.exe`。
 
-> **卸载会一并注销虚拟摄像头组件。** 不这样做会留下一个指向已删除文件的注册项：
+> **卸载会一并反注册虚拟摄像头组件。** 不这样做会留下一个指向已删除文件的注册项：
 > Zoom、OBS、ffmpeg 的摄像头列表里永远有一个选不中的「Seewo Virtual Camera」，
 > 而能清掉它的脚本已经随安装目录一起被删了。
 
@@ -192,13 +192,22 @@
 
 ```powershell
 cd <解压目录>\scripts
-.\Uninstall-Portable.ps1            # 注销组件、快捷方式，并提示删除目录
+.\Uninstall-Portable.ps1            # 反注册组件、移除快捷方式，并提示删除目录
 .\Uninstall-Portable.ps1 -DeleteFolder   # 连目录一起删
 ```
 
 > **先清理再删目录。** 直接删目录会重演上面说的「僵尸摄像头」：注册项留在系统里，
 > 而清除它的脚本正好被你删掉了。忘了也不要紧——清理脚本不依赖程序文件是否存在，
 > 从别处调用同样有效。
+
+界面和脚本里这几个词是分工的，不混用：
+
+| 说法 | 指什么 |
+| --- | --- |
+| **注册 / 反注册** | 虚拟摄像头 COM 组件的登记与撤销 |
+| **移除** | 一个具体对象：快捷方式、防火墙规则、摄像头实例 |
+| **清除** | 这个工具对系统做过的全部改动，含残留项 |
+| **卸载** | 卸载整个程序 |
 
 ### 注册原生组件
 
@@ -213,8 +222,8 @@ cd <解压目录>\scripts
 cd <安装或解压目录>\scripts
 .\Install-Native.ps1 -Action Install     # 注册
 .\Install-Native.ps1 -Action Status      # 查看当前状态（不需要管理员权限）
-.\Install-Native.ps1 -Action Uninstall   # 注销
-.\Install-Native.ps1 -Action Cleanup     # 清除本程序对系统的全部改动（含孤立注册项）
+.\Install-Native.ps1 -Action Uninstall   # 反注册
+.\Install-Native.ps1 -Action Cleanup     # 清除这个工具对系统的全部改动（含残留注册项）
 ```
 
 脚本会按系统版本自动选择后端。
@@ -312,7 +321,7 @@ Seewo-Settings/
 │  ├─ SeewoVirtualCamera/      MF 自定义媒体源
 │  ├─ SeewoVirtualCamera.DShow/ DirectShow 源滤镜
 │  ├─ SeewoVirtualCamera.Setup/ 注册与摄像头管理工具
-├─ scripts/Install-Native.ps1      注册 / 注销 / 状态查询 / 清除系统改动
+├─ scripts/Install-Native.ps1      注册 / 反注册 / 状态查询 / 清除系统改动
 ├─ scripts/Uninstall-Portable.ps1  解压版的移除入口（清理系统改动）
 ├─ installer/SeewoAssistant.iss 安装程序定义（Inno Setup 6）
 ├─ .github/workflows/          build.yml（构建）、test.yml（验证）

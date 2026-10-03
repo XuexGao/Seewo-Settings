@@ -204,9 +204,11 @@ public sealed partial class MainWindow : Window
             ContentFrame.Navigate(pageType, _services);
         }
 
-        // The title bar shows where you are, which is what a title bar is for: it cannot
-        // contradict the page underneath, and it never needs clearing.
-        TitleBarStatus.Text = item.Content as string ?? string.Empty;
+        // Nothing is written to the title bar. It used to name the current page, which
+        // restated the navigation pane's own selection highlight; the user asked for the
+        // text beside the product name to go. The bottom status bar owns all messages,
+        // and it is cleared on navigation above, so no stale text can survive a page
+        // change.
 
         // Attribute anything the incoming page reports to that page.
         _services.CurrentPage = tag;
@@ -528,7 +530,7 @@ public sealed partial class MainWindow : Window
         ToolTipService.SetToolTip(
             ElevationBadge,
             "跨进程防截屏、防火墙规则、修改计划任务和定时关机需要管理员权限。" +
-            "虚拟摄像头、隐私监控和本程序窗口的防截屏不受影响。");
+            "虚拟摄像头、隐私监控和这个工具窗口的防截屏不受影响。");
         ElevationBadge.Visibility = Visibility.Visible;
     }
 

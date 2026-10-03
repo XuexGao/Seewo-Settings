@@ -75,7 +75,7 @@ public sealed class PowerService
         if (!TryEnableShutdownPrivilege())
         {
             return ActionResult.Fail(
-                "无法获取关机特权（SeShutdownPrivilege）。请以管理员身份运行本程序。");
+                "无法获取关机特权（SeShutdownPrivilege）。请以管理员身份运行这个工具。");
         }
 
         var reboot = action == PowerAction.Restart;

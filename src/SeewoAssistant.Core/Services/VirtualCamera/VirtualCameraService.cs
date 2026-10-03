@@ -344,7 +344,7 @@ public sealed class VirtualCameraService : IAsyncDisposable
         {
             return ActionResult.Fail(
                 "DirectShow 虚拟摄像头注册失败。" + string.Join("；", failures) +
-                "。注册需要管理员权限，请以管理员身份重新运行本程序。");
+                "。注册需要管理员权限，请以管理员身份重新运行这个工具。");
         }
 
         if (!anyRegistered)
@@ -379,7 +379,7 @@ public sealed class VirtualCameraService : IAsyncDisposable
                 $"/u /s \"{dll}\"",
                 cancellationToken).ConfigureAwait(false);
 
-            messages.Add($"{architecture}：{(exitCode == 0 ? "已注销" : $"退出码 {exitCode}")}");
+            messages.Add($"{architecture}：{(exitCode == 0 ? "已反注册" : $"退出码 {exitCode}")}");
         }
 
         if (messages.Count == 0)
@@ -389,7 +389,7 @@ public sealed class VirtualCameraService : IAsyncDisposable
 
         _logger.Info($"DirectShow virtual camera unregistered. {string.Join("; ", messages)}");
 
-        return ActionResult.Ok("已注销 DirectShow 虚拟摄像头（" + string.Join("，", messages) + "）。");
+        return ActionResult.Ok("已反注册 DirectShow 虚拟摄像头（" + string.Join("，", messages) + "）。");
     }
 
     /// <summary>Renders captured output for an error message, or nothing when empty.</summary>

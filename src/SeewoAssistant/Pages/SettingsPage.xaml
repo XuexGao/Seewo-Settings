@@ -89,8 +89,8 @@
 
                         <Button x:Name="CleanupSystemChangesButton"
                                 Click="OnCleanupSystemChanges"
-                                AutomationProperties.Name="清除本程序对系统的所有改动"
-                                Content="清除本程序对系统的所有改动" />
+                                AutomationProperties.Name="清除本工具对系统的所有改动"
+                                Content="清除本工具对系统的所有改动" />
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Spacing="8">

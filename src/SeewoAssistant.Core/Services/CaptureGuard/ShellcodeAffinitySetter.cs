@@ -155,7 +155,7 @@ public sealed class ShellcodeAffinitySetter
 
             return ActionResult.Fail(
                 error == NativeMethods.ERROR_ACCESS_DENIED
-                    ? "打开目标进程被拒绝。请以管理员身份运行本程序后重试。"
+                    ? "打开目标进程被拒绝。请以管理员身份运行这个工具后重试。"
                     : $"打开目标进程失败，Win32 错误 {error}。");
         }
 

@@ -17,30 +17,11 @@
             <TextBlock Style="{StaticResource PageSubtitleStyle}"
                        Text="让选中的窗口不出现在截图、录屏和屏幕共享里。" />
 
-            <!-- The hard limit stays on the page, because it decides which of the two
-                 buttons below will work. Why it works that way is in the one-time intro. -->
-            <Border Style="{StaticResource CardBorderStyle}">
-                <StackPanel Spacing="12">
-                    <TextBlock Text="先知道这个限制" Style="{StaticResource CardTitleStyle}" />
-
-                    <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="Windows 只允许程序保护自己的窗口。所以要保护别的程序，得先打开「跨进程」，让一小段代码写进对方进程替它调用接口。" />
-
-                    <InfoBar IsOpen="True"
-                             IsClosable="False"
-                             Severity="Warning"
-                             Title="一句话总结"
-                             Message="本程序自己的窗口：稳定可用。其他程序的窗口：属于实验性功能，受杀毒软件和系统权限影响，不保证成功。" />
-                </StackPanel>
-            </Border>
-
             <!-- Own-window demo: the path that always works. -->
             <TextBlock Text="保护本程序窗口（推荐先试这个）" Style="{StaticResource SectionHeaderStyle}" />
 
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="12">
-                    <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="给这个工具自己的窗口加保护：不用写入别的进程，也不会被杀软拦。想先确认功能有没有用，试这个最稳。" />
 
                     <TextBlock x:Name="OwnWindowText"
                                Style="{StaticResource MonospaceStyle}"
@@ -59,8 +40,6 @@
                         </Button>
                     </StackPanel>
 
-                    <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="验证方法：点「保护本程序窗口」后，按 Win+Shift+S 截图并框选本窗口所在的区域。窗口区域会变成空白或黑色；点「取消保护」后再截一次就恢复正常。" />
                 </StackPanel>
             </Border>
 
@@ -120,8 +99,6 @@
 
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="12">
-                    <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="列出当前可见的顶层窗口。选择一行后即可对它应用或取消保护。列表是刷新时的快照，窗口关闭后该行会失效。" />
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="RefreshWindowsButton" Click="OnRefreshWindows"
@@ -214,8 +191,7 @@
 
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="12">
-                    <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="开启后每秒约 10 次读取鼠标指针下方的窗口并实时显示。把鼠标移到目标窗口上，然后点「确定」即可选中它。" />
+
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="RadarButton" Click="OnToggleRadar" Style="{StaticResource AccentButtonStyle}"

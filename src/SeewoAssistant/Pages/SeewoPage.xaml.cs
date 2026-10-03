@@ -89,7 +89,7 @@ public sealed partial class SeewoPage : ModulePageBase
             (hasDebug
                 ? " 当前已能获取调试特权。"
                 : " 当前无法获取 SeDebugPrivilege。") +
-            " 扫描和查看功能不受影响。请右键以管理员身份运行本程序以启用全部功能。";
+            " 扫描和查看功能不受影响。右键以管理员身份运行这个工具，就能用上全部功能。";
         PermissionInfoBar.IsOpen = true;
     }
 
@@ -375,7 +375,7 @@ public sealed partial class SeewoPage : ModulePageBase
                 "挂起选中进程",
                 $"将挂起 {selected.Count} 个进程：\n{string.Join("\n", selected.Select(p => $"· {p.ProcessName} (PID {p.ProcessId})"))}\n\n" +
                 "被挂起的进程会完全冻结（不响应、不刷新画面），但不会丢失数据。随时可以恢复。\n" +
-                "退出本程序时会自动恢复所有被挂起的进程。",
+                "退出这个工具时会自动恢复所有被挂起的进程。",
                 "挂起"))
         {
             return;
@@ -437,7 +437,7 @@ public sealed partial class SeewoPage : ModulePageBase
                 $"全部{action}",
                 $"将对所有匹配规则的希沃进程执行「{action}」。\n\n" +
                 (suspend
-                    ? "被挂起的进程会完全冻结，退出本程序时会自动恢复。"
+                    ? "被挂起的进程会完全冻结，退出这个工具时会自动恢复。"
                     : "恢复所有被挂起的希沃进程。"),
                 action))
         {
@@ -628,7 +628,7 @@ public sealed partial class SeewoPage : ModulePageBase
     {
         if (!await ConfirmAsync(
                 "移除所有防火墙规则",
-                "这只会删掉我们建的那几条 SeewoAssistant Block 规则，被禁止联网的希沃程序都会恢复联网。\n\n" +
+                "这只会删掉这个工具建的那几条 SeewoAssistant Block 规则，被禁止联网的希沃程序都会恢复联网。\n\n" +
                 "你或者其他软件建的规则，一律不动。",
                 "移除全部"))
         {

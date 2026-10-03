@@ -554,7 +554,7 @@ public sealed partial class SettingsPage : ModulePageBase
         if (!await ConfirmAsync(
                 "注册到当前目录",
                 "这会把虚拟摄像头组件注册到系统（HKLM 里的 COM 注册表项），"
-                + "并把系统记录的安装目录改成本程序的目录：\n\n"
+                + "并把系统记录的安装目录改成这个工具的目录：\n\n"
                 + Services.SystemIntegration.AppDirectory + "\n\n"
                 + (state.IsElevated
                     ? "当前已经以管理员身份运行，不会弹出提权提示。"
@@ -576,10 +576,10 @@ public sealed partial class SettingsPage : ModulePageBase
     private async void OnCleanupSystemChanges(object sender, RoutedEventArgs e)
     {
         if (!await ConfirmAsync(
-                "清除本程序对系统的所有改动",
-                "这会注销本程序注册到系统的虚拟摄像头 COM 组件，移除系统记录的安装目录、"
-                + "本程序创建的防火墙规则、快捷方式，以及「应用和功能」里的登记。\n\n"
-                + "它不依赖本程序的原生文件，删除文件夹之后也能用来清理残留。"
+                "清除本工具对系统的所有改动",
+                "这会反注册这个工具注册到系统的虚拟摄像头 COM 组件，移除系统记录的安装目录、"
+                + "这个工具创建的防火墙规则、快捷方式，以及「应用和功能」里的登记。\n\n"
+                + "它不依赖这个工具的原生文件，删除文件夹之后也能用来清理残留。"
                 + "组件注册部分需要管理员权限，接下来会弹出系统提权提示。这个操作不可撤销。",
                 "清除"))
         {
@@ -600,7 +600,7 @@ public sealed partial class SettingsPage : ModulePageBase
 
             if (scriptResult.Success && apps.Success && shortcuts.Success)
             {
-                Report("已清除本程序对系统的所有改动。", StatusSeverity.Success);
+                Report("已清除这个工具对系统的所有改动。", StatusSeverity.Success);
                 return;
             }
 

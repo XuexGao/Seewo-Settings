@@ -448,8 +448,8 @@ public sealed class SystemIntegrationService
         var message = action switch
         {
             NativeScriptAction.Install => "已把虚拟摄像头组件注册到当前目录，并记录安装位置。",
-            NativeScriptAction.Uninstall => "已从系统中注销本程序注册的虚拟摄像头组件。",
-            _ => "已清除本程序对系统所做的改动（组件注册、安装位置记录和防火墙规则）。",
+            NativeScriptAction.Uninstall => "已从系统中反注册这个工具注册的虚拟摄像头组件。",
+            _ => "已清除这个工具对系统所做的改动（组件注册、安装位置记录和防火墙规则）。",
         };
 
         return new ElevatedScriptResult(true, false, 0, message);
@@ -513,7 +513,7 @@ public sealed class SystemIntegrationService
 
         if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
         {
-            return ActionResult.Fail($"找不到本程序的可执行文件：{executablePath}");
+            return ActionResult.Fail($"找不到这个工具的可执行文件：{executablePath}");
         }
 
         try
@@ -608,7 +608,7 @@ public sealed class SystemIntegrationService
 
         return removed > 0
             ? ActionResult.Ok($"已移除 {removed} 个快捷方式。")
-            : ActionResult.Ok("本来就没有本程序创建的快捷方式。");
+            : ActionResult.Ok("本来就没有这个工具创建的快捷方式。");
     }
 
     private static string Describe(ShortcutLocation location) =>
@@ -663,7 +663,7 @@ public sealed class SystemIntegrationService
 
         if (string.IsNullOrWhiteSpace(executablePath))
         {
-            return ActionResult.Fail("无法确定本程序的可执行文件路径。");
+            return ActionResult.Fail("无法确定这个工具的可执行文件路径。");
         }
 
         try
@@ -685,7 +685,7 @@ public sealed class SystemIntegrationService
             {
                 _logger.Warn($"Refusing to overwrite the uninstall entry owned by '{existingLocation}'.");
                 return ActionResult.Fail(
-                    $"「应用和功能」里已有一条由安装程序写入的记录（位置：{existingLocation}），本程序不会覆盖它。");
+                    $"「应用和功能」里已有一条由安装程序写入的记录（位置：{existingLocation}），这个工具不会覆盖它。");
             }
 
             key.SetValue("DisplayName", DisplayName, RegistryValueKind.String);
@@ -700,7 +700,7 @@ public sealed class SystemIntegrationService
             key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
 
             _logger.Info($"Registered in Apps & features: {AppDirectory}");
-            return ActionResult.Ok("已在「应用和功能」中登记本程序，卸载入口指向 scripts\\Uninstall-Portable.ps1。");
+            return ActionResult.Ok("已在「应用和功能」中登记这个工具，卸载入口指向 scripts\\Uninstall-Portable.ps1。");
         }
         catch (UnauthorizedAccessException ex)
         {
@@ -730,7 +730,7 @@ public sealed class SystemIntegrationService
             {
                 if (key is null)
                 {
-                    return ActionResult.Ok("「应用和功能」里本来就没有本程序的记录。");
+                    return ActionResult.Ok("「应用和功能」里本来就没有这个工具的记录。");
                 }
 
                 var existingLocation = key.GetValue("InstallLocation")?.ToString();
@@ -741,14 +741,14 @@ public sealed class SystemIntegrationService
                 {
                     _logger.Warn($"Refusing to delete the uninstall entry owned by '{existingLocation}'.");
                     return ActionResult.Fail(
-                        $"「应用和功能」里那条记录属于另一个安装（位置：{existingLocation}），本程序不会删除它。");
+                        $"「应用和功能」里那条记录属于另一个安装（位置：{existingLocation}），这个工具不会删除它。");
                 }
             }
 
             Registry.CurrentUser.DeleteSubKeyTree(AppsAndFeaturesKeyPath, throwOnMissingSubKey: false);
 
             _logger.Info("Removed the Apps & features entry.");
-            return ActionResult.Ok("已从「应用和功能」中移除本程序的记录。");
+            return ActionResult.Ok("已从「应用和功能」中移除这个工具的记录。");
         }
         catch (Exception ex)
         {

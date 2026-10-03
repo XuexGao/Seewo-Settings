@@ -827,7 +827,7 @@ $window = Get-AppWindow -ProcessId $process.Id
 
 $integrationControls = @(
     '注册到当前目录（需要管理员）'
-    '清除本程序对系统的所有改动'
+    '清除本工具对系统的所有改动'
     '在桌面创建快捷方式'
     '在开始菜单创建快捷方式'
     '移除快捷方式'
@@ -925,7 +925,7 @@ $unsafeButtons = @(
     # rewrite the HKLM CLSID keys, and the cleanup one also removes firewall rules and
     # the install-path record. None of that is reversible inside a test run, and the
     # prompt itself is a modal dialog the dismissal helper does not recognise.
-    '注册到当前目录（需要管理员）', '清除本程序对系统的所有改动', '重新注册到当前目录',
+    '注册到当前目录（需要管理员）', '清除本工具对系统的所有改动', '重新注册到当前目录',
 
     # These write per-user state - shortcuts on the desktop and in the Start Menu, and
     # an uninstall entry under HKCU. Clicking them would leave the machine changed after

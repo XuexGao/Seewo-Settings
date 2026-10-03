@@ -51,6 +51,20 @@ Set-StrictMode -Version Latest
 $MediaSourceClsid = '{A7E4B2C1-5D3F-4A88-9B6E-1C2D3E4F5A60}'
 $DirectShowClsid = '{B8F5C3D2-6E4A-4B99-8C7F-2D3E4F5A6B71}'
 
+# CLSID_VideoInputDeviceCategory = {860BB310-5D01-11d0-BD3B-00A0C911CE86}
+#
+# The category a capture source must also be listed under. DirectShow registration is
+# two separate places, and this is the one that actually makes a camera appear:
+#   * CLSID\{filter}                     - the COM object, so CoCreateInstance works
+#   * CLSID\{category}\Instance\<name>  - the device list ICreateDevEnum walks
+# Deleting only the first leaves a device in every camera picker that cannot be opened.
+# native/SeewoVirtualCamera.DShow/dllmain.cpp documents and writes both.
+$VideoInputDeviceCategoryClsid = '{860BB310-5D01-11d0-BD3B-00A0C911CE86}'
+
+# The FriendlyName the filter registers itself under, and therefore the name of its
+# entry in the category. Used to remove that entry by name.
+$DirectShowFriendlyName = 'Seewo Virtual Camera'
+
 # Both registry views. A 32-bit host application loads the x86 DirectShow filter,
 # which registers under WOW6432Node; removing only the 64-bit keys is what leaves a
 # camera that still enumerates for those applications and can never open.
@@ -246,8 +260,66 @@ function Remove-ComRegistrationKeys {
         }
     }
 
+    $removed += Remove-DirectShowCategoryEntries
+
     if ($removed -eq 0) {
         Write-Info '没有需要删除的 COM 注册项'
+    }
+
+    return $removed
+}
+
+function Remove-DirectShowCategoryEntries {
+    # Removes the filter's entry from the video-input-device category.
+    #
+    # Deleting the filter's own CLSID key is not enough to make the camera disappear,
+    # and this is exactly how that was discovered: `-Action Uninstall` runs
+    # `regsvr32 /u`, which removes both places, while `-Action Cleanup` deleted the
+    # CLSID key directly and left the category entry behind. The result looked clean
+    # and still listed "Seewo Virtual Camera" in every DirectShow enumeration, pointing
+    # at a CLSID that no longer existed - the same phantom device, reached by the other
+    # of the two removal paths.
+    #
+    # Both the name and the CLSID are matched. The name is what this program registers,
+    # but a stale entry from an older version could carry a different CLSID value, and
+    # an entry whose CLSID points at us under a different name would otherwise survive.
+    $removed = 0
+
+    foreach ($base in $ClsidRegistryPaths) {
+        $instanceRoot = Join-Path (Join-Path $base $VideoInputDeviceCategoryClsid) 'Instance'
+
+        if (-not (Test-Path $instanceRoot)) {
+            continue
+        }
+
+        foreach ($entry in @(Get-ChildItem -Path $instanceRoot -ErrorAction SilentlyContinue)) {
+            $value = $null
+
+            try {
+                $value = (Get-ItemProperty -Path $entry.PSPath -ErrorAction Stop).CLSID
+            }
+            catch {
+                # An entry with no CLSID value cannot belong to this filter; leave it.
+                continue
+            }
+
+            $isOurs = $entry.PSChildName -eq $DirectShowFriendlyName -or
+                      "$value" -eq $DirectShowClsid
+
+            if (-not $isOurs) {
+                continue
+            }
+
+            Remove-Item -Path $entry.PSPath -Recurse -Force -ErrorAction SilentlyContinue
+
+            if (Test-Path $entry.PSPath) {
+                Write-Warn "无法删除分类注册项 $($entry.PSPath)"
+            }
+            else {
+                Write-Ok "已删除分类注册项 $($entry.PSChildName)"
+                $removed++
+            }
+        }
     }
 
     return $removed
@@ -407,12 +479,12 @@ function Uninstall-Native {
         Write-Info '未找到安装工具，跳过'
     }
 
-    Write-Header '注销 DirectShow 滤镜'
+    Write-Header '反注册 DirectShow 滤镜'
 
     $dshowDll = Join-Path $nativePath 'SeewoVirtualCamera.DShow.dll'
     if (Test-Path $dshowDll) {
         Start-Process regsvr32.exe -ArgumentList '/u', '/s', "`"$dshowDll`"" -Wait
-        Write-Ok '已注销 DirectShow 滤镜'
+        Write-Ok '已反注册 DirectShow 滤镜'
     }
     else {
         Write-Info '未找到 DirectShow 滤镜，跳过'

@@ -12,10 +12,6 @@
             <TextBlock Style="{StaticResource PageSubtitleStyle}"
                        Text="把虚拟摄像头、隐私监控、防截屏、希沃管控和电源操作自由组合成定时序列。" />
 
-            <!-- Behaviour that the user must understand before relying on the feature. -->
-            <InfoBar IsOpen="True" IsClosable="False" Severity="Informational"
-                     Title="调度行为说明"
-                     Message="任务由本程序内的调度器触发，因此程序必须正在运行。错过的触发不会补跑：如果机器在 08:00 处于睡眠、09:00 才唤醒，08:00 那次不会延迟执行，只有下一个计划时刻会触发。上一个实例还在运行时，下一次触发会被跳过。" />
 
             <!-- ============================== task list ============================== -->
             <TextBlock Text="任务列表" Style="{StaticResource SectionHeaderStyle}" />
@@ -147,9 +143,6 @@
                         <!-- A worked example, because "分 时 日 月 周" in the header names
                              the fields but not their meaning, and the quick-fill buttons
                              below only cover the common cases. -->
-                        <TextBlock Style="{StaticResource CardBodyStyle}"
-                                   FontSize="12"
-                                   Text="格式：分(0-59) 时(0-23) 日(1-31) 月(1-12) 周(0-7，0 和 7 都是周日)。例：0 8 * * 1-5 = 工作日 08:00。" />
 
                         <InfoBar x:Name="CronInfoBar" IsOpen="False" IsClosable="False" />
 
@@ -177,8 +170,6 @@
 
                             <StackPanel Grid.Column="0" Spacing="2">
                                 <TextBlock Text="动作序列" FontWeight="SemiBold" />
-                                <TextBlock Style="{StaticResource CardBodyStyle}"
-                                           Text="按顺序执行。可以给每一步设置延迟和失败处理。" />
                             </StackPanel>
 
                             <Button Grid.Column="1" x:Name="AddActionButton" Click="OnAddAction"
@@ -215,9 +206,6 @@
                         </Button>
                     </StackPanel>
 
-                    <InfoBar IsOpen="True" IsClosable="False" Severity="Informational"
-                             Title="关于「写入 Windows 任务计划程序」"
-                             Message="任务目前只在希沃助手运行时触发。把任务注册到 Windows 任务计划程序可以让它在程序关闭时也执行，但本版本尚未实现该功能，因此界面上没有提供这个开关，以免造成误解。" />
                 </StackPanel>
             </Border>
 
@@ -226,8 +214,6 @@
 
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Spacing="16">
-                    <TextBlock Style="{StaticResource CardBodyStyle}"
-                               Text="关机与重启会先显示系统倒计时提示，期间可以取消。这些操作需要管理员权限。" />
 
                     <Grid ColumnSpacing="16" RowSpacing="12">
                         <Grid.ColumnDefinitions>
@@ -278,9 +264,6 @@
                     </StackPanel>
 
                     <!-- Honest treatment of scheduled power-on. -->
-                    <InfoBar IsOpen="True" IsClosable="False" Severity="Warning"
-                             Title="为什么没有「定时开机」"
-                             Message="处于完全关机（S5）状态的电脑上没有操作系统在运行，任何软件都无法唤醒它。唯二可靠的途径是固件的 RTC 定时唤醒和 Wake-on-LAN，两者都在 Windows 之外配置：开机时按 Del / F2 / F10 进入 BIOS/UEFI，在「Power Management」或「Advanced」里找到「RTC Alarm」「Wake Up Event」或「Resume by RTC Alarm」并设定时间；Wake-on-LAN 还需要在网卡的高级属性里启用「Wake on Magic Packet」，并在 BIOS 中允许网络唤醒。与其提供一个不可靠的按钮，这里如实说明。" />
                 </StackPanel>
             </Border>
 

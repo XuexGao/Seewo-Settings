@@ -376,7 +376,7 @@ public sealed class StartupManagerService
         {
             return ActionResult.Fail(
                 string.IsNullOrWhiteSpace(entry.DisabledReason)
-                    ? "该启动项无法通过本程序修改。"
+                    ? "该启动项无法通过这个工具修改。"
                     : entry.DisabledReason);
         }
 
@@ -403,7 +403,7 @@ public sealed class StartupManagerService
         }
 
         var message = exitCode == 1 && output.Contains("Access is denied", StringComparison.OrdinalIgnoreCase)
-            ? "修改计划任务需要管理员权限，请以管理员身份运行本程序。"
+            ? "修改计划任务需要管理员权限，请以管理员身份运行这个工具。"
             : $"修改计划任务失败（退出码 {exitCode}）：{output.Trim()}";
 
         return ActionResult.Fail(message);
@@ -461,11 +461,11 @@ public sealed class StartupManagerService
         }
         catch (UnauthorizedAccessException)
         {
-            return ActionResult.Fail($"修改 {entry.Location} 需要管理员权限，请以管理员身份运行本程序。");
+            return ActionResult.Fail($"修改 {entry.Location} 需要管理员权限，请以管理员身份运行这个工具。");
         }
         catch (System.Security.SecurityException)
         {
-            return ActionResult.Fail($"修改 {entry.Location} 被拒绝，请以管理员身份运行本程序。");
+            return ActionResult.Fail($"修改 {entry.Location} 被拒绝，请以管理员身份运行这个工具。");
         }
     }
 
@@ -501,7 +501,7 @@ public sealed class StartupManagerService
         }
         catch (UnauthorizedAccessException)
         {
-            return ActionResult.Fail("修改启动文件夹需要管理员权限，请以管理员身份运行本程序。");
+            return ActionResult.Fail("修改启动文件夹需要管理员权限，请以管理员身份运行这个工具。");
         }
         catch (IOException ex)
         {
@@ -525,7 +525,7 @@ public sealed class StartupManagerService
         }
 
         var message = output.Contains("Access is denied", StringComparison.OrdinalIgnoreCase)
-            ? "修改服务启动类型需要管理员权限，请以管理员身份运行本程序。"
+            ? "修改服务启动类型需要管理员权限，请以管理员身份运行这个工具。"
             : $"修改服务失败（退出码 {exitCode}）：{output.Trim()}";
 
         return ActionResult.Fail(message);
